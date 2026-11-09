@@ -276,6 +276,7 @@ quand plus aucun client n'utilise `accessapi.toolso.io`).
 | `deploy/bin/replay-sqs-actions.sh <uid> [--max N] [--keep]` | SQS `actions_<uid>` → `ActionQueue` | `sqs:ReceiveMessage`, `sqs:DeleteMessage` |
 | `apps/api/scripts/import-mirrors.js`, `apps/api/scripts/enqueue-actions.js` | conversion / insertion côté instance (lancés dans le conteneur `api`) | aucun |
 | `apps/access/scripts/set-database-endpoint.js` | `apiEndpoint` / `enabled` des bases dans l'access | aucun |
+| `deploy/bin/migrate-from-media.sh <uid> --product <p> …` | base **toolso-media** (autre plateforme) → `emailing_<uid>`, par conversion : voir `docs/06-migration-depuis-media.md` | `secretsmanager:GetSecretValue` (`media-<nom>`, eu-west-3) ; connexion PostgreSQL au cluster media |
 
 Tous les scripts `deploy/bin/*.sh` sont `set -euo pipefail`, relançables, et ne manipulent les secrets
 qu'en variables (jamais affichés, jamais sur une ligne de commande visible dans `ps`).
