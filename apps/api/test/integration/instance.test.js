@@ -38,11 +38,10 @@ beforeAll(async () => {
 
   sequelizeModule = require('../../src/storage/sequelize');
   const sequelize = await sequelizeModule.initWithPostgresql(5);
-  await sequelize.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
-  await sequelize.query(`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'grafanareader') THEN CREATE ROLE grafanareader NOLOGIN; END IF; END $$;`);
-  await sequelize.sync({ force: false, alter: true });
-  await sequelize.query('DROP VIEW IF EXISTS "SendingStrategiesResults"');
-  await sequelize.query(require('../../src/storage/models/postSynchroSQL').postSynchroSQL);
+  const { syncModel } = require('../../src/storage/syncModel');
+  await syncModel(sequelize);
+  // rejouable : un second passage (mise à jour d'une base existante) ne doit pas échouer sur les vues
+  await syncModel(sequelize);
 
   app = require('../../src/api/api').initApi();
   request = require('supertest')(app);
@@ -235,6 +234,8 @@ test('scheduler : le verrou PostgreSQL empêche deux exécutions simultanées du
   const schedules = loadSchedules();
   expect(schedules.find((schedule) => schedule.job === 'check_schedules_to_send').cron).toBe('* * * * *');
   expect(schedules.find((schedule) => schedule.job === 'update_contents_scores')).toBeUndefined();
+  expect(schedules.find((schedule) => schedule.job === '_comment')).toBeUndefined();
+  expect(schedules.length).toBe(20);
 
   const runJob = require('../../src/jobs/runJob');
   const original = runJob.runJob;

@@ -20,7 +20,7 @@ const loadSchedules = () => {
     .map((job) => job.trim())
     .filter((job) => job.length > 0);
   return Object.entries(schedules)
-    .filter(([job, definition]) => definition && definition.enabled !== false && !disabled.includes(job))
+    .filter(([job, definition]) => !job.startsWith('_') && definition && typeof definition.cron === 'string' && definition.enabled !== false && !disabled.includes(job))
     .map(([job, definition]) => ({ job, cron: definition.cron, description: definition.description }));
 };
 

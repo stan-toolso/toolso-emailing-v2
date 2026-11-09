@@ -1,26 +1,20 @@
 #!/usr/bin/env node
 /**
  * Crée ou met à jour le schéma de la base emailing (équivalent du job `build_model` / `update_model_with_sequelize.js`) :
- * `sequelize.sync({ alter: true })` sur les 41 modèles puis le SQL complémentaire (vues, index trigram).
+ * suppression des vues, `sequelize.sync({ alter: true })` sur les 41 modèles, puis le SQL complémentaire (vues, index trigram). Rejouable.
  *   node scripts/sync-model.js        (lit .env)
  */
 require('dotenv').config();
 process.env.LOG_LEVEL = process.env.LOG_LEVEL || 'INFO';
 const log = require('../src/util/log').getLogger('SyncModel');
-const { postSynchroSQL } = require('../src/storage/models/postSynchroSQL');
+const { syncModel } = require('../src/storage/syncModel');
 
 (async () => {
   const sequelizeModule = require('../src/storage/sequelize');
   try {
     const sequelize = await sequelizeModule.initWithPostgresql(5);
     log.info(`Sync model for ${process.env.RESOURCE_UID}`);
-    // prérequis du SQL complémentaire : extension pg_trgm et rôle de lecture `grafanareader`
-    await sequelize.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
-    await sequelize.query(`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'grafanareader') THEN CREATE ROLE grafanareader NOLOGIN; END IF; END $$;`);
-    await sequelize.sync({ force: false, alter: true });
-    // la première vue n'a pas de DROP IF EXISTS dans le SQL d'origine
-    await sequelize.query('DROP VIEW IF EXISTS "SendingStrategiesResults"');
-    await sequelize.query(postSynchroSQL);
+    await syncModel(sequelize);
     log.info('Model is up to date');
     await sequelizeModule.close();
     process.exit(0);

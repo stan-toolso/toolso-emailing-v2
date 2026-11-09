@@ -1,9 +1,5 @@
-const { postSynchroSQL } = require('../../storage/models/postSynchroSQL');
+const { syncModel } = require('../../storage/syncModel');
 
 module.exports = async (sequelize) => {
-  await sequelize.sync({
-    force: false,
-    alter: true
-  });
-  await sequelize.query(postSynchroSQL);
+  await syncModel(sequelize);
 };
