@@ -56,8 +56,12 @@ Seuls les adaptateurs d'infrastructure changent. Ce document liste chaque écart
 
 `scripts/legacy/` contient les scripts d'exploitation de la v1 (inutilisables tels quels). Nouveaux : `sync-model.js`, `run-job.js <job>`, `queue-status.js`, `dev-postgres.js`.
 
+Migration depuis AWS (appelés par `deploy/bin/migrate-mirrors.sh` et `deploy/bin/replay-sqs-actions.sh`, voir `docs/05-migration-depuis-aws.md`) :
+- `import-mirrors.js --dir <pages> [--bodies-dir <corps S3>]` : import des items DynamoDB `toolso-emailing-mirrors` (JSON du CLI ou NDJSON) dans la table `Mirror`, upsert. La conversion est dans `src/migration/dynamoMirror.js` : en v1, `CompressedBody` était le **texte base64** du deflate (`zlib.deflateSync(html).toString('base64')` passé à un attribut binaire), donc doublement encodé à la lecture par le CLI ; au-delà de 990 octets il était retiré de l'item et le même texte écrit dans S3 `toolso-emailing-mirror-body` sous la clé `mirrorId` (seulement si le mail contenait le lien miroir). La table `Mirror` stocke le deflate brut.
+- `enqueue-actions.js --file <ndjson>` : insère dans `ActionQueue` des actions `{ type, payload }` ou des messages SQS bruts (`Body`), format identique entre la file SQS `actions_<uid>` de la v1 et la v2.
+
 ## Tests
 
 - `npm run test:unit` : les 6 suites Jest d'origine (32 tests, sequelize mocké).
-- `npm test` : idem + `test/integration/instance.test.js` sur PostgreSQL embarqué (schéma, health, upload, miroir, tracking → file → worker, désabonnement, webhook, file d'actions, verrou du scheduler, purges).
+- `npm test` : idem + `test/integration/instance.test.js` sur PostgreSQL embarqué (schéma, health, upload, miroir, tracking → file → worker, désabonnement, webhook, file d'actions, verrou du scheduler, purges), `test/integration/import-mirrors.test.js` et `test/integration/enqueue-actions.test.js` (scripts de migration), `test/services/dynamoMirror.test.js` (décodage des corps v1).
 - `npm run cucumber` : scénario `qualityScore.feature` d'origine.

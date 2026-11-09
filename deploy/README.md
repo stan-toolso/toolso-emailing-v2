@@ -22,6 +22,10 @@ deploy/
     ├── render-nginx.sh         regénère la conf nginx dérivée (mode TLS, instances) et recharge
     ├── upgrade.sh              git pull, build, sync-model, redémarrage ordonné
     ├── backup.sh / restore.sh  pg_dump par base + fichiers + config, rotation, rclone optionnel
+    ├── migrate-from-aws.sh     reprise d'une base RDS (et de la base access) depuis AWS — docs/05-migration-depuis-aws.md
+    ├── migrate-mirrors.sh      reprise des miroirs DynamoDB/S3 d'une base dans la table Mirror
+    ├── jwt-secret-from-aws.sh  reprise du secret JWT de la plateforme AWS dans les .env
+    ├── replay-sqs-actions.sh   rejeu des messages SQS reçus pendant la bascule dans la file d'actions
     ├── compose.sh              docker compose platform|<uid> …
     ├── logs.sh / psql.sh       journaux, console psql
     └── lib.sh                  fonctions communes

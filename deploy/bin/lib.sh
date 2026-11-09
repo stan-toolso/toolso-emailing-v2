@@ -85,7 +85,8 @@ env_set() {
   touch "$file"
   if grep -qE "^[[:space:]]*(export[[:space:]]+)?${key}=" "$file"; then
     local tmp; tmp="$(mktemp)"
-    awk -v k="$key" -v v="$value" 'BEGIN{done=0} $0 ~ "^[[:space:]]*(export[[:space:]]+)?"k"=" && !done {print k"="v; done=1; next} {print}' "$file" > "$tmp"
+    # la valeur passe par l'environnement (pas par -v) : awk n'interprète pas ses antislashs (secrets repris d'ailleurs)
+    ENV_SET_VALUE="$value" awk -v k="$key" 'BEGIN{v=ENVIRON["ENV_SET_VALUE"]; done=0} $0 ~ "^[[:space:]]*(export[[:space:]]+)?"k"=" && !done {print k"="v; done=1; next} {print}' "$file" > "$tmp"
     cat "$tmp" > "$file"; rm -f "$tmp"
   else
     printf '%s=%s\n' "$key" "$value" >> "$file"
@@ -104,6 +105,19 @@ load_platform_env() {
 }
 
 random_secret() { openssl rand -hex "${1:-32}"; }
+
+# ---------- AWS (scripts de migration, lecture seule) ----------
+# aws_cli args… : CLI AWS avec la région (AWS_REGION, défaut eu-west-1) et le profil (AWS_PROFILE) courants.
+AWS_REGION="${AWS_REGION:-eu-west-1}"
+aws_cli() { aws --region "$AWS_REGION" "$@"; }
+require_aws() {
+  require_cmd aws jq
+  aws_cli sts get-caller-identity >/dev/null 2>&1 || die "Accès AWS refusé : configurer un profil (AWS_PROFILE=… ou aws configure) avec un droit de lecture."
+}
+# aws_secret_json nom : affiche la chaîne secrète (JSON) d'un secret Secrets Manager. À capturer dans une variable, jamais à afficher.
+aws_secret_json() {
+  aws_cli secretsmanager get-secret-value --secret-id "$1" --query SecretString --output text
+}
 
 # ---------- gabarits ----------
 # render_template fichier CLÉ=VALEUR… : remplace chaque {{CLÉ}} par sa valeur et affiche le résultat.

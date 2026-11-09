@@ -123,6 +123,10 @@ sont réglables (`HTTP_PORT`, `HTTPS_PORT`). `tls.sh disable` repasse en mode `p
 
 ## 5. Ajouter une base emailing
 
+Pour reprendre une base existante de la plateforme AWS (RDS, miroirs DynamoDB, base access, secret JWT),
+suivre `05-migration-depuis-aws.md` : la base est d'abord créée vide avec `add-database.sh`, puis
+remplacée par le dump RDS avec `migrate-from-aws.sh`.
+
 ```bash
 sudo deploy/bin/add-database.sh clubdesjeux "Club des jeux" "Club des Jeux SAS" lk.clubdesjeux.fr
 #                                 <uid>      <nom affiché>   <entreprise>        [domaines de tracking…]

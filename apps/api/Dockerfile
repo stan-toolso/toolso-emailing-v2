@@ -12,7 +12,7 @@ COPY package.json ./
 COPY config ./config
 COPY views ./views
 COPY src ./src
-COPY scripts/sync-model.js scripts/run-job.js scripts/queue-status.js ./scripts/
+COPY scripts/sync-model.js scripts/run-job.js scripts/queue-status.js scripts/import-mirrors.js scripts/enqueue-actions.js ./scripts/
 USER node
 EXPOSE 4001
 VOLUME ["/data/files"]

@@ -64,7 +64,9 @@
     "test:unit": "jest --runInBand --testPathIgnorePatterns integration",
     "cucumber": "cucumber-js",
     "lint": "eslint 'src/**/*.js'",
-    "lintErrors": "eslint 'src/**/*.js' --quiet"
+    "lintErrors": "eslint 'src/**/*.js' --quiet",
+    "import-mirrors": "node scripts/import-mirrors.js",
+    "enqueue-actions": "node scripts/enqueue-actions.js"
   },
   "license": "MIT",
   "devDependencies": {
