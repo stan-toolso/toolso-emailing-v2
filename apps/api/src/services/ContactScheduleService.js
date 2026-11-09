@@ -38,6 +38,8 @@ module.exports = class {
     this._timer = setInterval(() => {
       this.contentCache = {};
     }, 5 * 60 * 1000);
+    // ne maintient pas le process en vie (scripts, tests) : le cache est un confort, pas un service
+    this._timer.unref && this._timer.unref();
     this.scheduleCache = {};
   }
 
