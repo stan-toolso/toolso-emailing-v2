@@ -13,7 +13,8 @@
     "create-superuser": "node scripts/create-superuser.js",
     "add-database": "node scripts/add-database.js",
     "dev-postgres": "node scripts/dev-postgres.js",
-    "test": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand"
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
+    "set-database-endpoint": "node scripts/set-database-endpoint.js"
   },
   "dependencies": {
     "@apollo/server": "^5.5.1",

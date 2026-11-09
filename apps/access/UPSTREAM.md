@@ -42,6 +42,7 @@ consomment sans changement.
 - `npm run sync-model` : `sequelize.sync({ alter: true })`.
 - `npm run create-superuser -- --email … --password … [--firstname … --lastname …]` : crée ou met à jour l'utilisateur (bcrypt, 10 tours comme à l'origine) et son `SuperUser`.
 - `npm run add-database -- --uid … --name … --api-endpoint https://hôte/api/<uid> --entreprise "Nom" [--admin email]` : idempotent ; `buildConfig: {}` (seule valeur trouvée dans le code d'origine, `scripts/fill_data.js`). L'admin absent de la base est créé et invité (mail avec lien `join`), et son rattachement est actif immédiatement (`pending: false`), contrairement à une invitation depuis l'UI.
+- `npm run set-database-endpoint -- --uid <uid> [--uid …] (--api-endpoint <url> | --api-base <url> | --disable) [--disable-others] | --list` : après reprise de la base access d'AWS, pointe les bases migrées vers `https://<hôte>/api/<uid>` et désactive les autres (`deploy/bin/migrate-from-aws.sh --access` l'appelle). Testé dans `test/set-database-endpoint.test.js`.
 - `npm run dev-postgres` : PostgreSQL embarqué (`embedded-postgres` 17.x, devDependency) dans `.pgdata/` pour le développement.
 - `npm test` : test de bout en bout (`test/smoke.test.js`) sur un PostgreSQL embarqué jetable. Le flag `--experimental-vm-modules` est nécessaire à Jest pour importer `embedded-postgres` (ESM).
 - `Dockerfile` : `node:22-alpine`, `npm ci --omit=dev`, utilisateur `node`, port 4000.
