@@ -21,7 +21,7 @@ module.exports = async (parent, { inclusionListId, s3Key, fileName }, context, i
   inclusionList.uploadStatus = {
     fileName,
     s3FileName: s3Key,
-    s3Location: `https://toolso-emailing-tmp-files.s3.eu-west-1.amazonaws.com/${s3Key}`,
+    s3Location: `tmp/${s3Key}`,
     status: 'waiting',
     contactImported: 0
   };

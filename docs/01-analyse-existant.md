@@ -12,7 +12,7 @@ Objectif du projet v2 : même périmètre fonctionnel, même interface, mais une
 
 ## 1. Architecture actuelle (AWS, multi-tenant)
 
-Chaque base cliente (« emailing database », identifiée par `RESOURCE_UID`, ex. `230_sffr`, `clubdesjeux`) possède **ses propres Lambdas** déployées à partir d'un même artefact zip :
+Chaque base cliente (« emailing database », identifiée par `RESOURCE_UID`) possède **ses propres Lambdas** déployées à partir d'un même artefact zip :
 
 | Lambda | Handler | Déclencheur | Mémoire / timeout | Rôle |
 |---|---|---|---|---|

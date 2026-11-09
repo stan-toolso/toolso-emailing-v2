@@ -2,7 +2,7 @@ const ContactStatus = require('../src/storage/models/ContactStatus');
 
 function getContact() {
   return {
-    email: 'stanboude@gmail.com',
+    email: 'contact@example.com',
     segment: 1,
     esp: 'gmail',
     firstname: 'Stan',

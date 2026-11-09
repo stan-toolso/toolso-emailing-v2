@@ -24,7 +24,7 @@ beforeAll(async () => {
   delete env.SMTP_URL;
   run('sync-model.js', []);
   // trois bases « venues d'AWS » : deux migrées, une qui reste sur AWS
-  for (const uid of ['clubdesjeux', 'elixis_gm', 'reste_aws']) {
+  for (const uid of ['exemple', 'autre_base', 'reste_aws']) {
     run('add-database.js', ['--uid', uid, '--name', uid, '--api-endpoint', `https://xyz.execute-api.eu-west-1.amazonaws.com/${uid}`, '--entreprise', `Entreprise ${uid}`]);
   }
 });
@@ -43,11 +43,11 @@ const databases = async () => {
 };
 
 test('--api-base pour plusieurs bases et --disable-others', async () => {
-  const { out } = run('set-database-endpoint.js', ['--uid', 'clubdesjeux', '--uid', 'elixis_gm', '--api-base', 'https://emailing.example.com/api/', '--disable-others']);
-  expect(out).toContain('clubdesjeux');
+  const { out } = run('set-database-endpoint.js', ['--uid', 'exemple', '--uid', 'autre_base', '--api-base', 'https://emailing.example.com/api/', '--disable-others']);
+  expect(out).toContain('exemple');
   expect(await databases()).toEqual({
-    clubdesjeux: { enabled: true, apiEndpoint: 'https://emailing.example.com/api/clubdesjeux' },
-    elixis_gm: { enabled: true, apiEndpoint: 'https://emailing.example.com/api/elixis_gm' },
+    exemple: { enabled: true, apiEndpoint: 'https://emailing.example.com/api/exemple' },
+    autre_base: { enabled: true, apiEndpoint: 'https://emailing.example.com/api/autre_base' },
     reste_aws: { enabled: false, apiEndpoint: 'https://xyz.execute-api.eu-west-1.amazonaws.com/reste_aws' }
   });
 });
@@ -56,8 +56,8 @@ test('--api-endpoint pour une base, --disable, --list, uid inconnu', async () =>
   run('set-database-endpoint.js', ['--uid', 'reste_aws', '--api-endpoint', 'https://emailing.example.com/api/reste_aws/']);
   expect((await databases()).reste_aws).toEqual({ enabled: true, apiEndpoint: 'https://emailing.example.com/api/reste_aws' });
 
-  run('set-database-endpoint.js', ['--uid', 'elixis_gm', '--disable']);
-  expect((await databases()).elixis_gm.enabled).toBe(false);
+  run('set-database-endpoint.js', ['--uid', 'autre_base', '--disable']);
+  expect((await databases()).autre_base.enabled).toBe(false);
 
   expect(run('set-database-endpoint.js', ['--list']).out).toContain('reste_aws');
   expect(run('set-database-endpoint.js', ['--uid', 'inconnue', '--api-base', 'https://x'], { allowFailure: true }).code).toBe(1);

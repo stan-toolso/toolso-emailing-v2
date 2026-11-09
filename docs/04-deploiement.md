@@ -36,7 +36,7 @@ Les scripts sont dans `deploy/bin/`, idempotents (relançables sans dégât) et 
 - Serveur Ubuntu 24.04 LTS (Scaleway Elastic Metal ou équivalent), accès root, ports 80 et 443
   ouverts en entrée, port 25/587 ouvert en sortie vers le SMTP de plateforme (et les ESP).
 - Un nom d'hôte public pour l'UI et les API (`PUBLIC_HOST`, ex. `emailing.exemple.com`).
-- Un ou plusieurs domaines de tracking par base (ex. `lk.clubdesjeux.fr`), facultatifs.
+- Un ou plusieurs domaines de tracking par base (ex. `lk.exemple.com`), facultatifs.
 - Un compte SMTP pour les mails de plateforme (invitations, réinitialisation de mot de passe,
   notifications d'export).
 - Le dépôt cloné sur le serveur, par exemple dans `/opt/toolso-emailing` (`git clone … && cd …`).
@@ -89,7 +89,7 @@ encore là). Vérifier : `deploy/bin/compose.sh platform ps`, `deploy/bin/logs.s
 | Nom | Type | Cible | Usage |
 |---|---|---|---|
 | `emailing.exemple.com` | A / AAAA | IP du serveur | UI, `/access/graphql`, `/api/<uid>/`, `/files/<uid>/` |
-| `lk.clubdesjeux.fr` (par base) | A / AAAA ou CNAME vers l'hôte principal | IP du serveur | liens trackés, pixel d'ouverture, désabonnement, miroir, webhooks |
+| `lk.exemple.com` (par base) | A / AAAA ou CNAME vers l'hôte principal | IP du serveur | liens trackés, pixel d'ouverture, désabonnement, miroir, webhooks |
 
 Les domaines de tracking apparaissent dans les mails envoyés : préférer un sous-domaine du
 domaine expéditeur de chaque client. Les en-têtes SPF/DKIM/DMARC relèvent des ESP configurés dans
@@ -99,7 +99,7 @@ l'application, pas de ce déploiement.
 
 ```bash
 sudo deploy/bin/tls.sh issue                       # certificat « main » pour PUBLIC_HOST, passage en TLS_MODE=tls
-sudo deploy/bin/tls.sh issue-tracking clubdesjeux  # certificat « tracking-clubdesjeux » (tous les TRACKING_HOSTS de la base)
+sudo deploy/bin/tls.sh issue-tracking exemple  # certificat « tracking-exemple » (tous les TRACKING_HOSTS de la base)
 sudo deploy/bin/tls.sh status                      # certificats présents
 sudo deploy/bin/tls.sh renew                       # renouvellement (lancé par cron), recharge nginx si un certificat a changé
 ```
@@ -128,7 +128,7 @@ suivre `05-migration-depuis-aws.md` : la base est d'abord créée vide avec `add
 remplacée par le dump RDS avec `migrate-from-aws.sh`.
 
 ```bash
-sudo deploy/bin/add-database.sh clubdesjeux "Club des jeux" "Club des Jeux SAS" lk.clubdesjeux.fr
+sudo deploy/bin/add-database.sh exemple "Base exemple" "Entreprise exemple" lk.exemple.com
 #                                 <uid>      <nom affiché>   <entreprise>        [domaines de tracking…]
 # options : --admin email (administrateur de la base dans access, défaut ADMIN_EMAIL)
 #           --skip-register (ne pas appeler add-database de l'access API)   --no-tls
@@ -166,7 +166,7 @@ base reste déclarée dans l'access API : la retirer dans l'UI.
 ```bash
 sudo deploy/bin/upgrade.sh              # git pull --ff-only, build, puis redémarrage ordonné
 sudo deploy/bin/upgrade.sh --no-pull    # code déjà à jour (ex. checkout d'un tag à la main)
-sudo deploy/bin/upgrade.sh --only clubdesjeux --no-build   # une seule instance
+sudo deploy/bin/upgrade.sh --only exemple --no-build   # une seule instance
 ```
 
 Ordre appliqué pour chaque instance : arrêt de `worker`, `worker_huge`, `scheduler` (les actions en
@@ -199,8 +199,8 @@ chaque sauvegarde est copiée vers le distant et la même rotation y est appliqu
 Restauration :
 
 ```bash
-sudo deploy/bin/restore.sh /var/backups/toolso-emailing/2026-11-09_023000 --db clubdesjeux      # une base (stack arrêtée puis relancée)
-sudo deploy/bin/restore.sh /var/backups/toolso-emailing/2026-11-09_023000 --files clubdesjeux   # fichiers d'une instance
+sudo deploy/bin/restore.sh /var/backups/toolso-emailing/2026-11-09_023000 --db exemple      # une base (stack arrêtée puis relancée)
+sudo deploy/bin/restore.sh /var/backups/toolso-emailing/2026-11-09_023000 --files exemple   # fichiers d'une instance
 sudo deploy/bin/restore.sh /var/backups/toolso-emailing/2026-11-09_023000 --db access
 ```
 

@@ -38,6 +38,7 @@ module.exports = {
   ipApiKey: () => process.env.IP_API_KEY || null,
   recaptchaSecret: () => process.env.RECAPTCHA_SECRET || null,
   recaptchaSiteKey: () => process.env.RECAPTCHA_SITE_KEY || null,
+  contactEventsIgnoreLastImportedId: () => process.env.CONTACT_EVENTS_IGNORE_LAST_IMPORTED_ID === 'true',
   workerQueue: () => process.env.WORKER_QUEUE || 'default',
   workerConcurrency: () => parseInt(process.env.WORKER_CONCURRENCY || '10', 10),
   pgPoolMax: (fallback = 10) => parseInt(process.env.PG_POOL_MAX || `${fallback}`, 10),

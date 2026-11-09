@@ -37,5 +37,5 @@ Démarrage rapide :
 sudo deploy/bin/install.sh --host emailing.exemple.com --email admin@exemple.com \
      --smtp-url smtp://user:pass@smtp.exemple.com:587
 sudo deploy/bin/tls.sh issue                                   # après le DNS
-sudo deploy/bin/add-database.sh clubdesjeux "Club des jeux" "Club des Jeux SAS" lk.clubdesjeux.fr
+sudo deploy/bin/add-database.sh exemple "Base exemple" "Entreprise exemple" lk.exemple.com
 ```

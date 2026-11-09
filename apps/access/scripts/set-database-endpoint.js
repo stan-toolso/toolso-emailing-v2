@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Ajuste apiEndpoint / enabled des bases emailing déclarées dans l'access API, après reprise de la base access d'AWS :
 //   npm run set-database-endpoint -- --list
-//   npm run set-database-endpoint -- --uid clubdesjeux --api-endpoint https://hote/api/clubdesjeux        (active la base)
+//   npm run set-database-endpoint -- --uid exemple --api-endpoint https://hote/api/exemple        (active la base)
 //   npm run set-database-endpoint -- --uid a --uid b --api-base https://hote/api [--disable-others]     (apiEndpoint = <api-base>/<uid>)
 //   npm run set-database-endpoint -- --uid ancienne --disable                                           (enabled = false)
 // --disable-others désactive toutes les bases non citées (celles restées sur AWS). Idempotent.

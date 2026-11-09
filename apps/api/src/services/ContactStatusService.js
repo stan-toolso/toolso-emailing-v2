@@ -122,7 +122,9 @@ module.exports = class {
       where.date = {
         [Op.gt]: cachedEvents.lastImportedDate
       };
-    } else if (cachedEvents.lastImportedId && process.env.RESOURCE_UID != '230_sffr') {
+    } else if (cachedEvents.lastImportedId && process.env.CONTACT_EVENTS_IGNORE_LAST_IMPORTED_ID !== 'true') {
+      // CONTACT_EVENTS_IGNORE_LAST_IMPORTED_ID=true : ne pas filtrer sur l'identifiant du dernier événement importé
+      // (en v1 ce comportement était câblé sur une base précise)
       where.id = {
         [Op.gt]: cachedEvents.lastImportedId
       };

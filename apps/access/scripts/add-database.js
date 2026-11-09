@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Déclare une base emailing dans l'access API (idempotent) :
-//   npm run add-database -- --uid clubdesjeux --name "Club des jeux" --api-endpoint https://hote/api/clubdesjeux --entreprise "Nom" [--admin email]
+//   npm run add-database -- --uid exemple --name "Base exemple" --api-endpoint https://hote/api/exemple --entreprise "Nom" [--admin email]
 // Crée l'Entreprise si absente (par nom), crée ou met à jour l'EmailingDatabase (enabled, apiEndpoint, entreprise)
 // et rattache l'utilisateur --admin à l'entreprise avec le rôle admin (invité par mail s'il n'existe pas encore).
 require('dotenv').config();

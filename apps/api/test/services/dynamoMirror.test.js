@@ -40,7 +40,7 @@ describe('convertItem', () => {
   const item = {
     mirrorId: { S: '0000009C-F9AE-4731-8D20-E282DAA1C5AE' },
     messageId: { S: '<msg-1@mta.example>' },
-    ResourceUid: { S: 'clubdesjeux' },
+    ResourceUid: { S: 'exemple' },
     To: { S: 'contact@example.com' },
     Subject: { S: 'Bonjour' },
     Source: { S: 'Club <no-reply@example.com>' },
@@ -51,7 +51,7 @@ describe('convertItem', () => {
   test('convertit les attributs et le corps', () => {
     const converted = convertItem(item);
     expect(converted.error).toBeUndefined();
-    expect(converted.resourceUid).toBe('clubdesjeux');
+    expect(converted.resourceUid).toBe('exemple');
     expect(converted.hasInlineBody).toBe(true);
     expect(converted.row).toMatchObject({
       mirrorId: '0000009c-f9ae-4731-8d20-e282daa1c5ae',

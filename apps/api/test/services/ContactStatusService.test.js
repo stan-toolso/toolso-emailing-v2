@@ -59,7 +59,7 @@ test('contact with anormal click delay has an average score', async () => {
 
 function getContact() {
   return {
-    email: 'stanboude@gmail.com',
+    email: 'contact@example.com',
     segment: 1,
     esp: 'gmail',
     firstname: 'Stan',

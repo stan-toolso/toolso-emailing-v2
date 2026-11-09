@@ -333,7 +333,7 @@ module.exports = class {
       } else if (volumeDiff < -requests * 0.3) {
         //si on baisse le volume, on baisse maximum de 30% par jour (hors règles soft bounce ci-dessus, non plafonnées) :
         //une seule mauvaise journée coupait un ESP de moitié, pour ~8 jours de remontée à +10%/jour
-        //(elixis_atamo orange, 20/09/2026 : 48 000 -> 21 000 envois/jour après un OR ponctuellement bas le 19/09)
+        //(constaté sur une base en septembre 2026 : 48 000 -> 21 000 envois/jour sur un ESP après un taux d'ouverture ponctuellement bas)
         volumeDiff = -requests * 0.3;
       }
 

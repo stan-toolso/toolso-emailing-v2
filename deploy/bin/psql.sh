@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Console psql : bin/psql.sh <uid|access|postgres> [options psql…]   (ex. bin/psql.sh clubdesjeux -c 'select count(*) from "ActionQueue"')
+# Console psql : bin/psql.sh <uid|access|postgres> [options psql…]   (ex. bin/psql.sh exemple -c 'select count(*) from "ActionQueue"')
 source "$(dirname "$0")/lib.sh"
 target="${1:-}"; shift || true
 [[ -n "$target" ]] || die "Usage : $0 <uid>|access|postgres [options psql]"

@@ -3,7 +3,7 @@
 # schéma (sync-model), démarrage, enregistrement dans l'access API, fragments nginx, certificat tracking.
 #
 #   sudo bin/add-database.sh <uid> "<nom affiché>" "<entreprise>" [domaine-de-tracking …]
-#   sudo bin/add-database.sh clubdesjeux "Club des jeux" "Club des Jeux SAS" lk.clubdesjeux.fr
+#   sudo bin/add-database.sh exemple "Base exemple" "Entreprise exemple" lk.exemple.com
 #
 # Options : --admin <email> (administrateur de la base dans access, défaut ADMIN_EMAIL),
 #           --skip-register (ne pas appeler add-database de l'access API), --no-tls (pas de certificat tracking).

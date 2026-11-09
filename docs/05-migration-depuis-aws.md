@@ -39,7 +39,7 @@ Durée du gel = dump + restauration + `sync-model` + vérifications + rebranchem
 |---|---|---|---|
 | 10 Go | 10–20 min | 15–30 min | 1 h |
 | 100 Go | 1–2 h | 1,5–3 h | 5 h (nuit) |
-| 500 Go (`emailing-elixis-1` fait 1 To au total pour plusieurs bases) | 5–8 h | 6–12 h | 24 h (week-end), ou découper par base |
+| 500 Go (une instance RDS de 1 To héberge plusieurs bases) | 5–8 h | 6–12 h | 24 h (week-end), ou découper par base |
 
 Mesurer avant : `migrate-from-aws.sh <uid> --dump-only` s'exécute sans gel (le dump est cohérent, mais
 périmé) et donne la durée réelle du dump et la taille du fichier ; la restauration de ce dump d'essai

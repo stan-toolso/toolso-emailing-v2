@@ -50,6 +50,9 @@ Seuls les adaptateurs d'infrastructure changent. Ce document liste chaque écart
 - `build_model` n'est plus un job planifié : `npm run sync-model` (crée aussi l'extension `pg_trgm` et le rôle `grafanareader` attendus par le SQL complémentaire).
 - Logs : niveau par défaut `INFO` (v1 : `WARN`).
 - Dépendances déclarées explicitement : `cheerio`, `async`, `moment-timezone` (transitives en v1). `memjs` (inutilisé) retiré. Node 22.
+- `inscription_filters/DangerousEsps.js` : 67 adresses e-mail individuelles retirées de la liste de domaines (le filtre ne compare que le domaine : elles étaient sans effet).
+- `ContactStatusService.js` : le comportement câblé sur un `RESOURCE_UID` précis devient l'option `CONTACT_EVENTS_IGNORE_LAST_IMPORTED_ID=true`.
+- Données de test, exemples de documentation et tests Cypress : plus aucun nom de client, identifiant de compte ni adresse personnelle.
 - `ToolsoRouter.js` : un commentaire contenant des identifiants AWS (clé `AKIA…` d'un compte client) a été **supprimé** ; ces clés doivent être révoquées côté AWS.
 
 ## Scripts
