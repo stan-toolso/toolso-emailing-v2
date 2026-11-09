@@ -1,0 +1,113 @@
+scalar DateTime
+scalar JSON
+
+type User {
+  id: ID
+  email: String
+  firstname: String
+  lastname: String
+  role: String
+  entreprises: [UserEntreprise]
+  emailingDatabases(entrepriseId: ID!): [EmailingDatabase]
+  sites(entrepriseId: ID!): [Site]
+}
+
+type Entreprise {
+  id: ID
+  name: String
+  settings: JSON
+  users: [UserEntreprise]
+}
+
+type UserEntreprise {
+  id: ID
+  user: User
+  entreprise: Entreprise
+  role: String
+  disabled: Boolean
+  pending: Boolean
+}
+
+type EmailingDatabase {
+  id: ID
+  uid: String
+  name: String
+  apiEndpoint: String
+}
+
+type Site {
+  id: ID
+  uid: String
+  name: String
+  apiEndpoint: String
+  pricingConfig: JSON
+}
+
+type Query {
+  me: User
+  meWithToken(token: String!): User
+  entreprise(id: ID!): Entreprise
+  getMyDatabaseRole(uid: String!): UserEntreprise
+  getEnterpriseAndUsers(uid: String!): GetEnterpriseAndUsersPayload
+}
+
+type Mutation {
+  authWithPassword(email: String!, password: String!): String
+  resetPassword(token: String!, password: String!): ResetPasswordPayload
+
+  requestNewResetLink(email: String!): String
+
+  updateUserEntreprise(input: UpdateUserEntrepriseInput!): UpdateUserEntreprisePayload
+  removeUserEntreprise(input: RemoveUserEntrepriseInput!): RemoveUserEntreprisePayload
+  createUserEntreprise(input: CreateUserEntrepriseInput!): CreateUserEntreprisePayload
+  acceptUserEntreprise(input: AcceptUserEntrepriseInput!): AcceptUserEntreprisePayload
+  ignoreUserEntreprise(input: IgnoreUserEntrepriseInput!): IgnoreUserEntreprisePayload
+}
+
+input UpdateUserEntrepriseInput {
+  userEntreprise: JSON!
+}
+type UpdateUserEntreprisePayload {
+  userEntreprise: UserEntreprise
+}
+
+input RemoveUserEntrepriseInput {
+  id: ID!
+}
+type RemoveUserEntreprisePayload {
+  status: String
+}
+
+type GetEnterpriseAndUsersPayload {
+  entreprise: Entreprise
+  emailingDatabase: EmailingDatabase
+}
+
+input CreateUserEntrepriseInput {
+  entrepriseId: ID!
+  email: String!
+  firstname: String
+  lastname: String
+}
+type CreateUserEntreprisePayload {
+  userEntreprise: UserEntreprise
+}
+
+type ResetPasswordPayload {
+  user: User
+  token: String
+}
+
+input AcceptUserEntrepriseInput {
+  id: ID!
+}
+type AcceptUserEntreprisePayload {
+  userEntreprise: UserEntreprise
+}
+
+input IgnoreUserEntrepriseInput {
+  id: ID!
+}
+type IgnoreUserEntreprisePayload {
+  status: String
+}

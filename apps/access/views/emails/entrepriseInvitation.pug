@@ -1,0 +1,7 @@
+extends emailLayout
+
+block content
+  div(style="width: 100%") 
+    h1(style="text-align: center") You have been invited to join the company #{entreprise.name} on Toolso.
+    a(href=joinLink, style="margin:20px auto; width : 150px; color: #fff;background-color: #3c4b64;border-color: #3c4b64;display: block;font-weight: normal;text-align: center;white-space: nowrap;vertical-align: middle;user-select: none;border: 1px solid transparent;padding: 0.5rem 1rem;font-size: 0.875rem;line-height: 1.25;transition: all 0.2s ease-in-out;") Join #{entreprise.name}  
+
