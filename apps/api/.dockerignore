@@ -6,4 +6,3 @@ coverage
 !.env.example
 test
 features
-scripts/legacy

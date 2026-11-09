@@ -6,8 +6,7 @@
     "text"
   ],
   "testPathIgnorePatterns": [
-    "/node_modules/",
-    "/scripts/legacy/"
+    "/node_modules/"
   ],
   "roots": [
     "<rootDir>/test"

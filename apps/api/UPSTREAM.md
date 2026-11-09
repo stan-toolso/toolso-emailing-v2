@@ -54,7 +54,7 @@ Seuls les adaptateurs d'infrastructure changent. Ce document liste chaque écart
 
 ## Scripts
 
-`scripts/legacy/` contient les scripts d'exploitation de la v1 (inutilisables tels quels). Nouveaux : `sync-model.js`, `run-job.js <job>`, `queue-status.js`, `dev-postgres.js`.
+Les scripts d'exploitation de la v1 (`scripts/do_*.js`, liés à AWS et à des bases en dur) ne sont pas repris. Nouveaux : `sync-model.js`, `run-job.js <job>`, `queue-status.js`, `dev-postgres.js`.
 
 Migration depuis AWS (appelés par `deploy/bin/migrate-mirrors.sh` et `deploy/bin/replay-sqs-actions.sh`, voir `docs/05-migration-depuis-aws.md`) :
 - `import-mirrors.js --dir <pages> [--bodies-dir <corps S3>]` : import des items DynamoDB `toolso-emailing-mirrors` (JSON du CLI ou NDJSON) dans la table `Mirror`, upsert. La conversion est dans `src/migration/dynamoMirror.js` : en v1, `CompressedBody` était le **texte base64** du deflate (`zlib.deflateSync(html).toString('base64')` passé à un attribut binaire), donc doublement encodé à la lecture par le CLI ; au-delà de 990 octets il était retiré de l'item et le même texte écrit dans S3 `toolso-emailing-mirror-body` sous la clé `mirrorId` (seulement si le mail contenait le lien miroir). La table `Mirror` stocke le deflate brut.
