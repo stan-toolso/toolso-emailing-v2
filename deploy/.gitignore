@@ -1,0 +1,8 @@
+# Secrets et fichiers générés par les scripts bin/*.sh : jamais commités.
+env/*.env
+instances/*
+!instances/.gitkeep
+nginx/conf.d/instances/*.conf
+nginx/conf.d/tracking/*.conf
+nginx/conf.d/05-mode.conf
+nginx/snippets/listen-main.conf
