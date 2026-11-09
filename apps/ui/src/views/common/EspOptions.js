@@ -1,0 +1,20 @@
+export const EspOptions = [
+  { value: 'hotmail', label: 'Hotmail' },
+  { value: 'gmail', label: 'Gmail' },
+  { value: 'yahoo', label: 'Yahoo' },
+  { value: 'orange', label: 'Orange' },
+  { value: 'free', label: 'Free' },
+  { value: 'sfr', label: 'Sfr' },
+  { value: 'bouygues', label: 'Bouygues' },
+  { value: 'aol', label: 'Aol' },
+  { value: 'laposte', label: 'La Poste' },
+  { value: 'apple', label: 'Apple' },
+  { value: 'skynet', label: 'Skynet' },
+  { value: 'gmx', label: 'Gmx' },
+  { value: 'web', label: 'Web' },
+  { value: 'freenet', label: 'Freenet' },
+  { value: 'telenet', label: 'Telenet' },
+  { value: 'skynet', label: 'Skynet' },
+  { value: 'online', label: 'Online' },
+  { value: 'akeonet', label: 'Akeonet' }
+];

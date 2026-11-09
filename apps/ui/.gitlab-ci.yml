@@ -1,0 +1,43 @@
+stages:
+  - test
+  - build
+  - deploy-production
+
+test-job:
+  stage: test
+  cache:
+    key: $CI_PROJECT_DIR
+    paths:
+      - node_modules/
+  script:
+    - '[ -d node_modules ] || npm ci'
+    - npm run lint
+    - npm test
+
+build:
+  stage: build
+  cache:
+    key: $CI_PROJECT_DIR
+    paths:
+      - node_modules/
+    policy: pull
+  script:
+    - '[ -d node_modules ] || npm ci'
+    - npm run build
+  artifacts:
+    name: 'artifacts'
+    expire_in: 1 day
+    paths:
+      - build/
+
+deploy_production_onDemand:
+  stage: deploy-production
+  needs: ['build']
+  script:
+    - echo "Deploying application to PROD ..."
+    - aws s3 cp ./build/ s3://$AWS_S3_BUCKET/ --recursive --acl public-read
+    - aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_DISTRIBUTION --paths "/*"
+    - echo "new version successfully deployed to S3 prod."
+  environment:
+    name: PROD
+  when: manual
