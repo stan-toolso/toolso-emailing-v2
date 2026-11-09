@@ -1,0 +1,34 @@
+extends emailLayout
+
+block content
+  div(style="width: 100%")  
+    h1(style="text-align: center") Missing #{suggestion.typeOfSchedule} Contents on #{database}
+    h3(style="text-align: left") #{text}
+    
+    table
+        tr 
+            td Database 
+            td(style="font-weight:bold") #{database}
+        tr 
+        tr 
+            td Schedule Name
+            td(style="font-weight:bold") #{suggestion.scheduleName}
+        tr 
+        tr 
+            td Type of Schedule
+            td(style="font-weight:bold") #{suggestion.typeOfSchedule}
+        tr
+        tr 
+            td Content Type 
+            td(style="font-weight:bold") #{suggestion.contentType}
+        tr
+        tr 
+            td Min Contents 
+            td(style="font-weight:bold") #{suggestion.number}
+        tr
+        tr 
+            td Number of Missing Contents
+            td(style="font-weight:bold") #{5-suggestion.number}
+        tr      
+    a(href=link, style="margin:20px auto; width : 150px; color: #fff;background-color: #321fdb;border-color: #321fdb;display: block;font-weight: normal;text-align: center;white-space: nowrap;vertical-align: middle;user-select: none;border: 1px solid transparent;padding: 0.5rem 1rem;font-size: 0.875rem;line-height: 1.25;transition: all 0.2s ease-in-out;") Suggestion 
+

@@ -1,0 +1,26 @@
+{
+  "globals": {
+    "NodeJS": true
+  },
+  "env": {
+    "browser": false,
+    "es2022": true,
+    "node": true,
+    "jest": true
+  },
+  "extends": ["eslint:recommended", "prettier"],
+  "parserOptions": {
+    "sourceType": "module",
+    "ecmaFeatures": {
+      "jsx": true,
+      "experimentalObjectRestSpread": true
+    }
+  },
+  "rules": {
+    "no-case-declarations": "warn",
+    "no-unused-vars": "warn",
+    "no-async-promise-executor": "warn",
+    "no-useless-escape": "warn",
+    "no-control-regex": "warn"
+  }
+}

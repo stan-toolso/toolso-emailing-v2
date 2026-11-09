@@ -1,0 +1,42 @@
+html
+  head
+    meta(name="viewport",content="width=device-width, initial-scale=1, shrink-to-fit=no")
+    link(rel="stylesheet", href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css", integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z", crossorigin="anonymous")
+    title Validation de BAT
+  body
+   
+    .card(style="max-width: 550px;margin:auto; top: 50%; transform: translateY(-50%); position: relative; display: block")
+      form.m-0(action="", method="POST", enctype="application/x-www-form-urlencoded")
+        .card-header
+          h1(style="font-size: 20px; text-align: center;") Validation de BAT
+        .card-body(style="font-size: 0.9rem; text-align: center;")
+          if validation.status == 'validated'
+            .alert.alert-success
+              | Le BAT a été validé
+          if validation.status == 'rejected'
+            .alert.alert-danger
+              | Le BAT a été rejeté
+          h2(style="font-size: 17px; text-align: center;") #{content.name}
+            if versions.length > 1
+              h3(style="font-size: 12px; text-align: center;") Version: #{content.name}
+
+          if bat.message
+            .alert.alert-secondary
+              | #{bat.message}
+          .row.pt-2.form-group 
+         
+            label.col-4.col-form-label Objet
+            .col-8
+              input.form-control.form-control-sm(type="text",disabled="disabled", value=emailObject.subject)  
+          .row.form-group          
+            label.col-4.col-form-label Nom d'expéditeur
+            .col-8
+              input.form-control.form-control-sm(type="text",disabled="disabled", value=emailObject.senderName)  
+          .row.form-group          
+            label.col-4.col-form-label Email du validateur
+            .col-8
+              input.form-control.form-control-sm(type="text",disabled="disabled", value=validation.validator)  
+        
+          if validation.comment
+            textarea.form-control.my-3(name="comment",  rows="5", placeholder="Commentaire" , disabled="disabled")
+              | #{validation.comment.message}

@@ -1,0 +1,8 @@
+extends emailLayout
+
+block content
+  div(style="width: 100%") 
+    h1(style="text-align: center") Contact export is ready
+    | Your contact export is ready for database #{databaseName}. You can download it by clicking on the button:
+    a(href=link, style="margin:20px auto; width : 150px; color: #fff;background-color: #321fdb;border-color: #321fdb;display: block;font-weight: normal;text-align: center;white-space: nowrap;vertical-align: middle;user-select: none;border: 1px solid transparent;padding: 0.5rem 1rem;font-size: 0.875rem;line-height: 1.25;transition: all 0.2s ease-in-out;") Download
+

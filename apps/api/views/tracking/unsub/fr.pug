@@ -1,0 +1,22 @@
+html
+  head
+    meta(name="viewport",content="width=device-width, initial-scale=1, shrink-to-fit=no")
+    link(rel="stylesheet", href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css", integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z", crossorigin="anonymous")
+    title Me désinscrire
+  body
+   
+    .card(style="max-width: 550px;margin:auto; top: 50%; transform: translateY(-50%); position: relative; display: block")
+      .card-header
+        h1(style="font-size: 20px; text-align: center;") Me désinscrire
+      .card-body(style="font-size: 0.9rem; text-align: center;")
+       
+        if success
+          .alert.alert-success
+            | Votre désinscription a bien été prise en compte. Vous ne recevrez plus de couriel de cet expéditeur.
+        if !success
+          | Cliquez sur "Me désinscrire" pour ne plus recevoir de courriels de cet expéditeur sur cette adresse email: #{email}.
+      if !success
+        .card-footer(style="text-align: center;")
+          form(action="" method="POST")
+            input(name="unsub", type="hidden", value="1")
+            button.btn.btn-primary Me désinscrire

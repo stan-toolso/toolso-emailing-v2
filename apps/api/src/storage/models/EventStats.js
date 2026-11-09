@@ -1,0 +1,21 @@
+module.exports = Object.freeze({
+  request: 'request',
+  delivered: 'delivered',
+  soft_bounce: 'soft_bounce',
+  hard_bounce: 'hard_bounce',
+  contact_bounce: 'contact_bounce',
+  content_bounce: 'content_bounce',
+  click: 'click',
+  open: 'open',
+  unsub: 'unsub',
+  complaint: 'complaint',
+  unique_click: 'unique_click',
+  unique_open: 'unique_open',
+  proxy_loaded: 'proxy_loaded',
+  unique_proxy_loaded: 'unique_proxy_loaded',
+  contact_scores: 'contact_scores',
+  click_validation_asked: 'click_validation_asked',
+  click_validation_checked: 'click_validation_checked',
+  unique_click_accepted: 'unique_click_accepted',
+  unique_delivered: 'unique_delivered'
+});

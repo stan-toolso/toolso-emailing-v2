@@ -1,0 +1,9 @@
+node_modules
+.pgdata
+coverage
+.env
+.env.*
+!.env.example
+test
+features
+scripts/legacy
