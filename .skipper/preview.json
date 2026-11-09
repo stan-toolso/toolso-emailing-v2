@@ -1,0 +1,5 @@
+{
+  "command": "node tools/preview/start.js",
+  "install": "node tools/preview/install.js",
+  "cwd": "."
+}

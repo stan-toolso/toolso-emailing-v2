@@ -1,0 +1,28 @@
+extends emailLayout
+
+block content
+  div(style="width: 100%") 
+    if esps != null
+        if autoSuspend
+            h1(style="text-align: center") Esp Exclusion
+        else 
+            h1(style="text-align: center") Partial Content Suspension Recommendation
+    else 
+        h1(style="text-align: center") Content Suspension Recommendation
+    table
+        tr 
+            td Database 
+            td(style="font-weight:bold") #{database}
+        tr 
+        tr 
+            td Content 
+            td(style="font-weight:bold") ##{content.id} #{content.name}
+        tr 
+            td Reason 
+            td(style="font-weight:bold") #{suspensionReason}
+        if additionalText != null
+            tr 
+                td Details 
+                td #{additionalText}
+    a(href=link, style="margin:20px auto; width : 150px; color: #fff;background-color: #321fdb;border-color: #321fdb;display: block;font-weight: normal;text-align: center;white-space: nowrap;vertical-align: middle;user-select: none;border: 1px solid transparent;padding: 0.5rem 1rem;font-size: 0.875rem;line-height: 1.25;transition: all 0.2s ease-in-out;") Content 
+

@@ -1,0 +1,23 @@
+html
+  head
+    meta(name="viewport",content="width=device-width, initial-scale=1, shrink-to-fit=no")
+    link(rel="stylesheet", href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css", integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z", crossorigin="anonymous")
+    title Validation
+
+    script(src="https://www.google.com/recaptcha/api.js", async, defer)
+  body
+   
+    .card(style="max-width: 550px;margin:auto; top: 30%; transform: translateY(-30%); position: relative; display: block")
+      .card-header
+        h1(style="font-size: 20px; text-align: center;") Validez pour continuer
+      .card-body(style="font-size: 0.9rem; text-align: center;")
+        | Nous avons besoin de vérifier que vous n'êtes pas un robot pour pouvoir accès au contenu.
+        div(style="margin: 20px auto; width : 300px")
+          div.g-recaptcha(data-sitekey=recaptchaSiteKey, style="margin: 20px auto", data-callback="recaptchaCallback")
+    form(action="" method="OK" id="form")    
+      input(type="hidden" name="captchaValid" value="")
+    script.
+      function recaptchaCallback(token){
+        let href = window.location.href ;
+        window.location.href  = href+'?gc='+token;
+      }

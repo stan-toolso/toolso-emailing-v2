@@ -1,0 +1,22 @@
+html
+  head
+    meta(name="viewport",content="width=device-width, initial-scale=1, shrink-to-fit=no")
+    link(rel="stylesheet", href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css", integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z", crossorigin="anonymous")
+    title Me désinscrire
+  body
+   
+    .card(style="max-width: 550px;margin:auto; top: 50%; transform: translateY(-50%); position: relative; display: block")
+      .card-header
+        h1(style="font-size: 20px; text-align: center;") Abmelden
+      .card-body(style="font-size: 0.9rem; text-align: center;")
+       
+        if success
+          .alert.alert-success
+            | Ihre Abmeldung wurde erfolgreich durchgeführt. Sie erhalten von diesem Absender keine E-Mails mehr.
+        if !success
+          | Klicken Sie auf "Abmelden", um von diesem Absender an diese E-Mail-Adresse: #{email} keine E-Mails mehr zu erhalten.
+      if !success
+        .card-footer(style="text-align: center;")
+          form(action="" method="POST")
+            input(name="unsub", type="hidden", value="1")
+            button.btn.btn-primary Abmelden

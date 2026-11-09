@@ -1,0 +1,856 @@
+scalar DateTime
+scalar JSON
+
+type Permission {
+  id: ID
+  email: String
+  value: JSON
+}
+
+type Permissions {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  list: [Permission]
+}
+
+type Contact {
+  id: ID
+  email: String
+  gender: String
+  firstname: String
+  lastname: String
+  street: String
+  zipcode: String
+  city: String
+  dob: String
+  segment: Int
+
+  customFields: JSON
+
+  status: String
+  statusDetail: JSON
+  activated: Boolean
+  blacklisted: Boolean
+  pixelTrackingConsent: Boolean
+  activityScore: Float
+  customScores: JSON
+
+  esp: String
+  md5: String
+  sha1: String
+  sha256: String
+
+  lastInscription: ContactInscription
+  inscriptions: [ContactInscription]
+  messages(limit: Int, offset: Int, filter: JSON): ContactMessages
+
+  stats: JSON
+  nextStatusUpdateDate: DateTime
+  lastStatusUpdateQueuedDate: DateTime
+  statusQueued: Boolean
+
+  events(limit: Int, offset: Int, filter: JSON): ContactEvents
+
+  segmentByFeatures: JSON
+}
+
+type Contacts {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  contacts: [Contact]
+}
+
+type ContactMessage {
+  id: ID
+  contact: Contact
+  date: DateTime
+  title: String
+  message: String
+  extract: String
+  from: String
+  to: String
+  sendFromToolso: Boolean
+  author: String
+  status: String
+  blacklistedContact: BlacklistedContact
+}
+
+type ContactMessages {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  messages: [ContactMessage]
+}
+
+type ContactMessageRule {
+  id: ID
+  name: String
+  enabled: Boolean
+  filter: JSON
+  actions: JSON
+}
+
+type ContactMessageRules {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  rules: [ContactMessageRule]
+}
+
+type ExclusionList {
+  id: ID
+  name: String
+  field: String
+  stats: JSON
+  uploadStatus: JSON
+  updatedAt: DateTime
+  createdAt: DateTime
+  items(limit: Int, offset: Int, filter: JSON): ExclusionListItems
+}
+
+type ExclusionListItem {
+  id: ID
+  value: String
+  exclusionList: ExclusionList
+}
+
+type ExclusionLists {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  exclusionLists: [ExclusionList]
+}
+
+type ExclusionListItems {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  exclusionListItems: [ExclusionListItem]
+}
+
+type InclusionList {
+  id: ID
+  name: String
+  field: String
+  stats: JSON
+  uploadStatus: JSON
+  updatedAt: DateTime
+  createdAt: DateTime
+  items(limit: Int, offset: Int, filter: JSON): InclusionListItems
+}
+
+type InclusionListItem {
+  id: ID
+  value: String
+  inclusionList: InclusionList
+}
+
+type InclusionLists {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  inclusionLists: [InclusionList]
+}
+
+type InclusionListItems {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  inclusionListItems: [InclusionListItem]
+}
+
+type BlacklistedContact {
+  id: ID
+  email: String
+  md5: String
+  sha1: String
+  sha256: String
+  stats: JSON
+  history: JSON
+}
+
+type BlacklistedContacts {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  blacklistedContacts: [BlacklistedContact]
+}
+
+type ContactEvent {
+  id: ID
+  type: String
+  date: DateTime
+  requestDate: DateTime
+  messageId: String
+  source: ContactSource
+  ipAddress: IpAddress
+  sender: Sender
+  contact: Contact
+  schedule: Schedule
+  content: Content
+  isUnique: Boolean
+  details: JSON
+}
+
+type ContactEvents {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  events: [ContactEvent]
+}
+
+type ContactStats {
+  id: ID
+  date: String
+  stats: JSON
+}
+
+type InscriptionStats {
+  id: ID
+  date: String
+  inscriptionDate: String
+  stats: JSON
+}
+
+type IpAddress {
+  id: ID
+  name: String
+  domain: String
+  ip: String
+}
+
+type Sender {
+  id: ID
+  name: String
+  email: String
+  senderName: String
+  replyToName: String
+  replyToEmail: String
+  unsubscribeMailto: String
+  trackingDomain: String
+  mailRouter: MailRouter
+}
+
+type Bat {
+  id: ID
+  date: DateTime
+  status: String
+  author: String
+  message: String
+  validatorsEmails: String
+  content: Content
+  comments: JSON
+  validations: JSON
+  sendingConfig: SendingConfig
+  partner: Partner
+}
+
+type Bats {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  bats: [Bat]
+}
+
+type Partner {
+  id: ID
+  name: String
+  validatorsEmails: String
+  defaultMessage: String
+  contacts: JSON
+  variables: JSON
+  kitMapping: JSON
+  bats: Bats
+}
+
+type Partners {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  partners: [Partner]
+}
+
+type Schedule {
+  id: ID
+  parentId: ID
+  name: String
+  type: String
+  scheduleDate: DateTime
+  rate: String
+  status: String
+  isActive: Boolean
+  config: JSON
+  report: JSON
+  contactsCount(contentId: ID): Int
+  contents(limit: Int, offset: Int, filter: JSON): Contents
+
+  sendingConfig: SendingConfig
+
+  dimensionDelivStats(fromDate: String, toDate: String, dimensionType: String, filter: JSON): DimensionsDelivStats
+}
+
+type Schedules {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  schedules: [Schedule]
+}
+
+type SendingConfig {
+  id: ID
+  name: String
+  config: JSON
+  history: JSON
+  activityHistory: [History]
+}
+
+type Content {
+  id: ID
+  name: String
+  isActive: Boolean
+  startDate: DateTime
+  endDate: DateTime
+  config: JSON
+  defaultVersion: ContentVersion
+  versions: [ContentVersion]
+  stats: DelivStats
+  schedules: [Schedule]
+  bats: [Bat]
+  delivStats: DelivStats
+  dimensionDelivStats(fromDate: String!, toDate: String!, dimensionType: String, filter: JSON): DimensionsDelivStats
+  createdAt: DateTime
+  updatedAt: DateTime
+  type: String
+  incomes(fromDate: String!, toDate: String!, estimateIncomes: Boolean): [ContentIncome]
+  incomesStats: JSON
+  partner: Partner
+  suspended: Boolean
+  suspensionReason: String
+  history: [History]
+  category: String
+  externalStats: ContentStats
+}
+
+type Contents {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  contents: [Content]
+}
+
+type ContentVersion {
+  id: ID
+  name: String
+  isDefault: Boolean
+  disabled: Boolean
+  html: String
+  previewText: String
+  subject: String
+  frenchEspsSubject: String
+  senderName: String
+  templateVariables: JSON
+  contentTemplate: ContentTemplate
+  archived: Boolean
+}
+
+type ContentTemplate {
+  id: ID
+  name: String
+  html: String
+  previewText: String
+  subject: String
+  frenchEspsSubject: String
+  senderName: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+type ContentTemplates {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  contentTemplates: [ContentTemplate]
+}
+
+type ContentTemplatePart {
+  id: ID
+  uid: String
+  name: String
+  html: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+type ContentTemplateParts {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  contentTemplateParts: [ContentTemplatePart]
+}
+
+type ContentIncome {
+  id: ID
+  date: String
+  content: Content
+  type: String
+  stats: JSON
+  validationRate: Float
+  recordedIncome: Float
+  estimatedIncome: Float
+}
+
+type DimensionsDelivStats {
+  fromDate: String
+  toDate: String
+  dimensionType: String
+  filter: JSON
+  totalStats: DelivStats
+  dimensionsStats: [DimensionDelivStats]
+}
+
+type DimensionDelivStats {
+  dimension: DelivDimension
+  totalStats: DelivStats
+  byDayStats: [DayDelivStats]
+}
+
+type DelivDimension {
+  id: ID
+  label: String
+  type: String
+  object: JSON
+}
+
+type DayDelivStats {
+  day: String
+  stats: DelivStats
+}
+
+type DelivStats {
+  request: Int
+  delivered: Int
+  soft_bounce: Int
+  hard_bounce: Int
+  contact_bounce: Int
+  content_bounce: Int
+  click: Int
+  open: Int
+  unsub: Int
+  complaint: Int
+  unique_click: Int
+  unique_open: Int
+  unique_proxy_loaded: Int
+  proxy_loaded: Int
+  contact_scores: Float
+  click_validation_asked: Int
+  click_validation_checked: Int
+  unique_delivered: Int
+  unique_click_accepted: Int
+}
+
+type ContentStats {
+  requests: Int
+  opened: Int
+  clicked: Int
+  delivered: Int
+  unsubscribed: Int
+  complainted: Int
+  proxy_loaded: Int
+  click_accepted: Int
+  soft_bounced: Int
+  contact_bounced: Int
+  content_bounced: Int
+  hard_bounced: Int
+  contact_scores: Float
+  ref_requests: Int
+  ref_opened: Int
+  ref_clicked: Int
+  ref_delivered: Int
+  ref_unsubscribed: Int
+  ref_complainted: Int
+  ref_proxy_loaded: Int
+  ref_click_accepted: Int
+  ref_soft_bounced: Int
+  ref_contact_bounced: Int
+  ref_content_bounced: Int
+  ref_hard_bounced: Int
+  ref_contact_scores: Float
+}
+
+type ContactSource {
+  id: ID
+  name: String
+  regexp: String
+  utmSource: String
+  apiEnabled: Boolean
+  apiKey: String
+  apiFields: JSON
+  apiScheduleIds: JSON
+  apiSettings: JSON
+  childConfig: JSON
+  defaultChildSource: ContactSource
+  childSources: [ContactSource]
+  parentSourceId: ID
+  parentSource: ContactSource
+}
+
+type ContactSources {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  sources: [ContactSource]
+}
+
+type ContactInscription {
+  id: ID
+  contact: Contact
+  source: ContactSource
+  inscriptionDate: DateTime
+  isFirst: Boolean
+  isFirstToday: Boolean
+  activated: Boolean
+  collectUrl: String
+  ip: String
+  sourceName: String
+  fields: JSON
+}
+
+type ContactInscriptions {
+  offset: Int
+  limit: Int
+  filter: JSON
+  total: Int
+  contactInscriptions: [ContactInscription]
+}
+
+type MailRouter {
+  id: ID
+  name: String
+  type: String
+  config: JSON
+}
+
+input CreateContentInput {
+  name: String!
+  type: String
+  startDate: DateTime
+  endDate: DateTime
+  config: JSON
+  versions: [ContentVersionInput]
+  partnerId: Int
+}
+
+input ContentVersionInput {
+  name: String
+  isDefault: Boolean
+  disabled: Boolean
+  html: String
+  previewText: String
+  subject: String
+  frenchEspsSubject: String
+  senderName: String
+  templateVariables: JSON
+  contentTemplateId: ID
+}
+
+type ApiKey {
+  id: ID
+  name: String
+  createdAt: DateTime
+  apiKey: String
+}
+
+type ContactsByDimensionsResult {
+  filter: JSON
+  dimensions: [String]
+  fields: [String]
+  result: JSON
+}
+
+type History {
+  id: ID
+  user: String
+  type: String
+  activity: JSON
+  createdAt: DateTime
+  ressource_type: String
+  ressource_id: ID
+  log_level: Int
+  need_notification: Boolean
+}
+
+type HistoryResult {
+  offset: Int
+  limit: Int
+  total: Int
+  history: [History]
+}
+
+type Suggestion {
+  id: ID
+  type: String
+  status: String
+  user: String
+  unique_id: String
+  details: JSON
+  suggestion_date: DateTime
+  createdAt: DateTime
+  updatedAt: DateTime
+  priority: String
+}
+
+type SuggestionResult {
+  offset: Int
+  limit: Int
+  total: Int
+  suggestions: [Suggestion]
+}
+
+type ActivationStats {
+  id: ID
+  date: String
+  esp: String
+
+  request: Int
+  request0Attempt: Int
+  request1Attempt: Int
+  request2Attempt: Int
+  request3Attempt: Int
+
+  unique_open: Int
+  unique_click: Int
+  unique_proxy_loaded: Int
+  unsub: Int
+  complaint: Int
+  hard_bounce: Int
+  soft_bounce: Int
+
+  newsStats: JSON
+}
+
+type ActivationConfig {
+  date: String
+  esp: String
+  config: JSON
+
+  history(fromDate: String!, toDate: String!): [ActivationConfig]
+}
+
+input ActivationConfigInput {
+  esp: String!
+  config: JSON
+}
+
+type Query {
+  myPermission: Permission
+  permission(email: String!): Permission
+  permissions(limit: Int, offset: Int, filter: JSON): Permissions
+
+  contact(id: ID!): Contact
+  contacts(limit: Int, offset: Int, filter: JSON): Contacts
+  contactsByDimensions(filter: JSON, dimensions: [String], fields: [String]): ContactsByDimensionsResult
+
+  exclusionLists(limit: Int, offset: Int, filter: JSON): ExclusionLists
+  exclusionList(id: ID!): ExclusionList
+
+  inclusionLists(limit: Int, offset: Int, filter: JSON): InclusionLists
+  inclusionList(id: ID!): InclusionList
+
+  blacklistedContact(id: ID!): BlacklistedContact
+  blacklistedContacts(limit: Int, offset: Int, filter: JSON): BlacklistedContacts
+
+  contactEvent(id: ID!): ContactEvent
+  contactEvents(limit: Int, offset: Int, filter: JSON): ContactEvents
+
+  contactSource(id: ID!): ContactSource
+  contactSources(limit: Int, offset: Int, filter: JSON): ContactSources
+
+  lastContactStats: ContactStats
+  lastInscriptionStats(fromInscriptionDate: String!, toInscriptionDate: String!): [InscriptionStats]
+
+  contactStats(fromDate: String!, toDate: String!): [ContactStats]
+  inscriptionStats(inscriptionDate: String!, fromDate: String!, toDate: String!): [InscriptionStats]
+
+  contactInscriptions(limit: Int, offset: Int, filter: JSON): ContactInscriptions
+  contactInscription(id: ID!): ContactInscription
+
+  contactMessages(limit: Int, offset: Int, filter: JSON): ContactMessages
+  contactMessage(id: ID!): ContactMessage
+
+  contactMessageRules(limit: Int, offset: Int, filter: JSON): ContactMessageRules
+  contactMessageRule(id: ID!): ContactMessageRule
+
+  content(id: ID!): Content
+  contents(limit: Int, offset: Int, filter: JSON): Contents
+  createContent(name: String!, type: String): Content
+  updateContent(content: JSON!): Content
+  duplicateContent(name: String, contentId: ID!, type: String): Content
+  deleteContent(contentId: ID!): String
+  updateContentVersion(contentVersion: JSON!): ContentVersion
+
+  contentTemplate(id: ID!): ContentTemplate
+  contentTemplates(limit: Int, offset: Int, filter: JSON): ContentTemplates
+
+  contentTemplatePart(id: ID!): ContentTemplatePart
+  contentTemplateParts(limit: Int, offset: Int, filter: JSON): ContentTemplateParts
+
+  scheduleContent(contentId: ID!, scheduleId: ID!): String
+  unscheduleContent(contentId: ID!, scheduleId: ID!): String
+
+  schedule(id: ID!): Schedule
+  schedules(limit: Int, offset: Int, filter: JSON): Schedules
+
+  bat(id: ID!): Bat
+  bats(limit: Int, offset: Int, filter: JSON): Bats
+
+  partner(id: ID!): Partner
+  partners(limit: Int, offset: Int, filter: JSON): Partners
+
+  dimensionDelivStats(fromDate: String!, toDate: String!, dimensionType: String, filter: JSON, dimensionFields: [String]): DimensionsDelivStats
+
+  getSettings(names: [String]!): JSON
+
+  sendingConfigs: [SendingConfig]
+  countContactsInSendingConfig(config: JSON!): JSON
+
+  mailRouters: [MailRouter]
+  senders: [Sender]
+
+  delivRouterStats(fromDate: String, toDate: String): JSON
+
+  contentIncome(id: ID!): ContentIncome
+  contentIncomes(fromDate: String!, toDate: String!, filter: JSON, estimateIncomes: Boolean): [ContentIncome]
+
+  apiKeys: [ApiKey]
+
+  getHistory(limit: Int, offset: Int): HistoryResult
+
+  activationStats(fromDate: String!, toDate: String!, esp: String): [ActivationStats]
+  activationConfigs: [ActivationConfig]
+  activationConfig(esp: String): ActivationConfig
+
+  getSuggestions(onlyActive: Boolean, limit: Int, offset: Int): SuggestionResult
+}
+
+type Mutation {
+  createContentTemplate(name: String!): ContentTemplate
+  updateContentTemplate(contentTemplate: JSON!): ContentTemplate
+  duplicateContentTemplate(name: String!, contentTemplateId: ID!): ContentTemplate
+  deleteContentTemplate(id: ID!): String
+
+  insertCodeInHtml(html: String!, code: String!, position: String!): String
+
+  createContent(input: CreateContentInput!): Content
+
+  updateContentVersion(contentVersion: JSON!): ContentVersion
+  createContentVersion(contentId: ID!): ContentVersion
+  cloneContentVersion(contentVersionId: ID!): ContentVersion
+  deleteContentVersion(contentVersionId: ID!): String
+
+  createContentTemplatePart(name: String!): ContentTemplatePart
+  updateContentTemplatePart(contentTemplatePart: JSON!): ContentTemplatePart
+  duplicateContentTemplatePart(name: String!, contentTemplatePartId: ID!): ContentTemplatePart
+  deleteContentTemplatePart(contentTemplatePartId: ID!): String
+
+  updateSettings(settings: JSON!): JSON
+  updateEncryptedSettings(settings: JSON!): JSON
+
+  createContactSource(name: String!, parentSourceId: ID): ContactSource
+  updateContactSource(source: JSON!): ContactSource
+  enableChildSource(sourceId: ID!): ContactSource
+
+  createMailRouter(name: String): MailRouter
+  updateMailRouter(mailRouter: JSON!): MailRouter
+  deleteMailRouter(mailRouterId: ID!): String
+
+  createSendingConfig(name: String): SendingConfig
+  updateSendingConfig(sendingConfig: JSON!): SendingConfig
+  deleteSendingConfig(sendingConfigId: ID!): String
+
+  createExclusionList(name: String): ExclusionList
+  updateExclusionList(exclusionList: JSON!): ExclusionList
+  deleteExclusionList(exclusionListId: ID!): String
+
+  uploadExclusionListFile(exclusionListId: ID!, s3Key: String!, fileName: String!): ExclusionList
+
+  createInclusionList(name: String): InclusionList
+  updateInclusionList(inclusionList: JSON!): InclusionList
+  deleteInclusionList(inclusionListId: ID!): String
+
+  uploadInclusionListFile(inclusionListId: ID!, s3Key: String!, fileName: String!): InclusionList
+
+  createSchedule(name: String!, type: String): Schedule
+  updateSchedule(schedule: JSON!): Schedule
+  deleteSchedule(scheduleId: ID!): String
+
+  unsubscribeContact(id: ID!): Contact
+  subscribeContact(id: ID!): Contact
+  removeContact(id: ID!): String
+
+  createContactMessageRule(name: String): ContactMessageRule
+  updateContactMessageRule(contactMessageRule: JSON!): ContactMessageRule
+  deleteContactMessageRule(contactMessageRuleId: ID!): String
+
+  blacklistContact(id: ID!, origin: String!, reason: String!): BlacklistedContact
+  blacklistContactWithFields(email: String, sha1: String, sha256: String, md5: String, origin: String!, reason: String!): BlacklistedContact
+  unblacklistContact(id: ID!): String
+  unblacklist(id: ID!): String
+  unblacklistWithFields(email: String, sha1: String, sha256: String, md5: String): String
+
+  updateContactMessage(message: JSON!): ContactMessage
+
+  sendContentVersionTest(emails: [String]!, contentId: ID!, versionId: ID!, sendingConfigId: ID!): JSON
+  createBat(contentId: ID!): Bat
+  updateBat(bat: JSON!): Bat
+  sendBat(batId: ID!, versionId: ID): Bat
+
+  createPartner(name: String): Partner
+  updatePartner(partner: JSON!): Partner
+  deletePartner(id: ID!): String
+
+  createSender(name: String): Sender
+  updateSender(sender: JSON!): Sender
+  deleteSender(senderId: ID!, versionId: ID): String
+
+  sendContactMessage(emails: [String]!, subject: String!, senderName: String, html: String!, templateVariables: JSON, sendingConfigId: ID!): JSON
+
+  exportContacts(fields: [String]!, format: String, filter: JSON, enterpriseId: ID): String
+
+  updateSendingConfigScores(sendingConfigId: ID!): String
+
+  generateUploadUrl(fileName: String!, fileType: String!): JSON
+
+  createContentIncomes(contentId: ID!, fromDate: String!, toDate: String!, type: String!, recordedIncome: Float!, validationRate: Float!): [ContentIncome]
+
+  createApiKey(name: String): ApiKey
+  deleteApiKey(id: ID!): String
+
+  suspendContent(contentId: ID!, suspensionReason: String!, additionalText: String, enterpriseId: ID): Content
+
+  markHistoryAsRead(id: ID!): History
+
+  updateActivationConfig(input: ActivationConfigInput!): ActivationConfig
+
+  updateSuggestion(suggestion: JSON!): Suggestion
+
+  updateContact(contact: JSON!): Contact
+}

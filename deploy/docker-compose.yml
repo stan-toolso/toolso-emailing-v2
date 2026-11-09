@@ -1,0 +1,155 @@
+# Stack « plateforme » de l'instance autonome Toolso Emailing :
+# PostgreSQL partagé, access API, nginx (UI statique + reverse proxy), certbot.
+# Les stacks par base (api, worker, worker_huge, scheduler) vivent dans
+# deploy/instances/<uid>/ et rejoignent le réseau Docker externe « toolso ».
+#
+# Toujours piloter cette stack par bin/compose.sh platform … (qui passe
+# --env-file env/platform.env pour l'interpolation des ${…} ci-dessous) :
+#   bin/compose.sh platform up -d
+#   bin/compose.sh platform --profile build build       # construit aussi l'image api
+#
+# Secrets : env/postgres.env, env/access.env (générés par bin/install.sh, jamais commités).
+
+name: toolso-platform
+
+networks:
+  toolso:
+    external: true
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: postgres
+    restart: unless-stopped
+    networks: [toolso]
+    env_file:
+      - ./env/postgres.env
+    environment:
+      POSTGRES_DB: access
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ${TOOLSO_DATA_DIR:-/var/lib/toolso-emailing}/postgres:/var/lib/postgresql/data
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+    # Réglages pour un serveur dédié partagé entre plusieurs instances (valeurs
+    # surchargeables dans env/platform.env). statement_timeout reste à 0 côté
+    # serveur : chaque application fixe le sien.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-1GB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-3GB}
+      - -c
+      - work_mem=${PG_WORK_MEM:-16MB}
+      - -c
+      - maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-256MB}
+      - -c
+      - max_connections=${PG_MAX_CONNECTIONS:-200}
+      - -c
+      - statement_timeout=0
+      - -c
+      - idle_in_transaction_session_timeout=600000
+      - -c
+      - wal_compression=on
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - log_min_duration_statement=5000
+      - -c
+      - timezone=${TZ:-Europe/Paris}
+    shm_size: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d access"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: ${PG_MEM_LIMIT:-2g}
+    logging: *logging
+
+  access:
+    build:
+      context: ../apps/access
+    image: toolso-emailing-access:latest
+    container_name: access
+    restart: unless-stopped
+    networks: [toolso]
+    env_file:
+      - ./env/access.env
+    environment:
+      PORT: "4000"
+      NODE_ENV: production
+      TZ: ${TZ:-Europe/Paris}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: ${ACCESS_MEM_LIMIT:-256m}
+    logging: *logging
+
+  nginx:
+    build:
+      context: ../apps/ui
+      args:
+        REACT_APP_ACCESS_API_ENDPOINT: /access/graphql
+    image: toolso-emailing-ui:latest
+    container_name: nginx
+    restart: unless-stopped
+    networks: [toolso]
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/snippets:/etc/nginx/snippets:ro
+      - ${TOOLSO_DATA_DIR:-/var/lib/toolso-emailing}/letsencrypt:/etc/letsencrypt:ro
+      - ${TOOLSO_DATA_DIR:-/var/lib/toolso-emailing}/certbot-www:/var/www/certbot:ro
+      - ${TOOLSO_DATA_DIR:-/var/lib/toolso-emailing}/files:/var/lib/toolso-emailing/files:ro
+    depends_on:
+      - access
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/nginx-health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: ${NGINX_MEM_LIMIT:-128m}
+    logging: *logging
+
+  # Certbot « à la demande » (profil tls, jamais démarré par `up`) : utilisé par
+  # bin/tls.sh pour obtenir et renouveler les certificats Let's Encrypt par
+  # webroot (nginx sert /.well-known/acme-challenge/ depuis certbot-www).
+  # Le renouvellement est planifié par cron (bin/install.sh → /etc/cron.d).
+  certbot:
+    image: certbot/certbot:latest
+    container_name: certbot
+    profiles: [tls]
+    restart: "no"
+    volumes:
+      - ${TOOLSO_DATA_DIR:-/var/lib/toolso-emailing}/letsencrypt:/etc/letsencrypt
+      - ${TOOLSO_DATA_DIR:-/var/lib/toolso-emailing}/certbot-www:/var/www/certbot
+    mem_limit: 128m
+    logging: *logging
+
+  # Service « image seulement » (profil build) : construit l'image api partagée par
+  # toutes les stacks d'instance (deploy/instances/<uid>/docker-compose.yml).
+  #   bin/compose.sh platform --profile build build api-image
+  api-image:
+    build:
+      context: ../apps/api
+    image: toolso-emailing-api:latest
+    profiles: [build]
+    restart: "no"
+    command: ["node", "-e", "process.exit(0)"]

@@ -1,0 +1,14 @@
+{
+  "coverageDirectory": "coverage",
+  "verbose": true,
+  "coverageReporters": [
+    "html",
+    "text"
+  ],
+  "testPathIgnorePatterns": [
+    "/node_modules/"
+  ],
+  "roots": [
+    "<rootDir>/test"
+  ]
+}
