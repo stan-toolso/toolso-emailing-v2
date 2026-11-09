@@ -1,0 +1,10 @@
+# Référence (à placer dans apps/access/Dockerfile si l'application n'en fournit pas).
+FROM node:22-alpine
+ENV NODE_ENV=production TZ=Europe/Paris
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY . .
+USER node
+EXPOSE 4000
+CMD ["node", "src/server.js"]
