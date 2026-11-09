@@ -1,0 +1,95 @@
+// Here you can add other styles
+
+/********** General *************/
+.cursor-pointer {
+  cursor: pointer;
+}
+
+/********** TABS *************/
+.nav-tabs {
+  .nav-link {
+    color: #768192;
+  }
+  .nav-link.active,
+  .nav-item.show .nav-link {
+    color: #768192;
+    background-color: #fff;
+    border-color: #c4c9d0 #c4c9d0 #fff;
+  }
+}
+
+/********** CONTACTS *************/
+.contact-detail .__json-pretty__,
+.inscription-detail .__json-pretty__ {
+  background: none;
+  color: #4f5d73;
+  span {
+    background: none;
+  }
+}
+
+/********** STATS *************/
+
+.stats-table,
+.stats-table th,
+.stats-table td {
+  font-size: 0.8rem;
+  padding: 0px;
+}
+.stats-table {
+  width: inherit;
+}
+
+/******** Toasts ********/
+.Toastify__toast--success {
+  background: $success-dark;
+}
+
+.Toastify__toast--error {
+  background: $danger-dark;
+}
+
+.Toastify__toast--warning {
+  background: $warning-dark;
+}
+
+/******** Callout card ********/
+.callout {
+  position: relative;
+  padding: 0 1rem;
+  margin: 1rem 0;
+  border-left: 4px solid #c8ced3;
+  border-radius: 0.25rem;
+}
+.callout-secondary {
+  border-left-color: $secondary;
+}
+
+/******** Navigation card ********/
+.card-with-navigation {
+  .card-with-navigation-left {
+    ul.nav {
+      width: 100%;
+      .nav-item {
+        width: 100%;
+        .nav-link {
+          color: #73818f;
+          border-bottom: 1px solid #c8ced3;
+          &.active {
+            color: #23282c;
+          }
+        }
+      }
+    }
+  }
+}
+
+/********** Tooltip ***********/
+.tooltip {
+  .tooltip-inner {
+    background-color: #fff;
+    border: 1px solid #ddd;
+    color: #3c4b64;
+    max-width: 350px;
+  }
+}
