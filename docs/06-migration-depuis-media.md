@@ -39,14 +39,45 @@ Les contacts non envoyables (`unsub`, `complaint`, `hard_bounce`, `archived`, `b
 `lastWorkableStatusDate` = date de la reprise : la v2 les purge `contact_days_in_archive` jours plus tard, comme un
 contact natif entré dans ce statut le jour de la bascule.
 
+## 1 bis. Contenus : articles et DEM → `Content` (option `--contents`)
+
+Les mails media sont construits à l'envoi (gabarit Mustache + meilleurs articles + publicités) ; la v2 envoie des
+`Content` fixes. La reprise convertit donc chaque article et chaque DEM en un contenu v2 **inactif**, à activer et à
+rattacher à une planification dans l'UI.
+
+| media | v2 | Règles |
+|---|---|---|
+| `article` du produit (`status = published`, `distribution_settings.emailing_enabled` ≠ false ; `--all-articles` pour tout, `--since-days N` pour les récents) | `Content` type `newsletter` + `ContentVersion` rattachée au `ContentTemplate` « Article – <produit> » | Le gabarit est créé une fois par produit (HTML générique : en-tête, image, titre, résumé, bouton « Lire l'article », pied avec `{{{unsubLink}}}` et `{{{mirrorLink}}}`) : le modifier dans l'UI change tous les articles repris. Les données sont dans `templateVariables` : `content.title`, `content.subject` (`email_subject` sinon titre), `content.preview_text`, `content.link` (`link`, champ personnalisé `articleLinkCustomField`, `url`, sinon `siteUrl/slug`), `content.cta_url`, `content.short_resume` / `long_resume` (texte, 100 / 200 caractères comme media), `content.description`, `content.body` (HTML complet de l'article), `content.image_url` / `image_w400` (`imgBaseUrl` ou `siteUrl` + `/imgs/max|400x400/<slug>.webp`, sinon `featured_image.url`), `content.categories`, `content.customs`, `content.site_url`, `content.product_name`. `Content.category` = première catégorie media |
+| `ad` de format `dem` (base **ads**, secret `toolso-ads`) dont le groupe cible le produit (`ad_group.support_settings.productIds`, vide = tous) et dont publicité, groupe et campagne sont actifs (`--include-disabled` sinon) | `Content` type `marketing` | HTML = `ad.content.html` rendu avec `ad.*`, `ad_group.*`, `campaign.*`, `product.*` résolus, encadré par `settings.header` / `settings.footer` de la version active du contenu media de type `dem` ; sujet, nom d'expéditeur et pré-en-tête de la publicité. `Content.category` = annonceur ; `config.media` garde campagne, groupe, partenaire et paramètre de clic partenaire (`ts_click_field`, non appliqué) |
+| `ad` de format `dem_template` | `Content` type `marketing` | gabarit = version active du contenu media de type `dem_template` du produit, rendu avec `ad.*` (contenu, `ad.link` = destination, `ad.image.src` absolu via `emailingRedirectionLink`) ; sans gabarit actif, la publicité est comptée `noTemplate` |
+
+Rendu partiel (`renderKeeping`) : seules les variables propres à media sont résolues ; `{{contact.*}}`, `{{unsubLink}}`,
+`{{mirrorLink}}`, `{{pixelConsentLink}}`, `{{#now}}…{{/now}}`, `{{urlEncode}}`, `{{genderFormat}}`, `{{dobFormat}}` sont
+conservés tels quels (même vocabulaire côté v2) et rendus à l'envoi. `contact.fields.x` devient `contact.customFields.x` ;
+`{{tsclid}}` / `__tsclid__` et les crochets `[ad …]` (publicités natives insérées par media, pas d'équivalent) sont retirés ;
+`{{dateFormat}}` et `{{contact.age}}` n'existent pas en v2 (balises listées dans `keptTags` du résumé, à corriger dans l'UI) ;
+une section inversée `{{^x}}` sur une variable conservée est rendue vide (`droppedInverted`).
+
+Idempotent : `Content.config.media = { type: article | dem, id, product }` ; un contenu déjà repris est ignoré. Les
+contenus sont créés inactifs, sans planification, sans partenaire v2 ni revenus.
+
+```bash
+sudo bin/migrate-from-media.sh <uid> --media-instance <nom> --product <produit> --contents --ads-secret toolso-ads --dry-run
+sudo bin/migrate-from-media.sh <uid> --media-instance <nom> --product <produit> --contents --ads-secret toolso-ads
+sudo bin/migrate-from-media.sh <uid> --media-instance <nom> --product <produit> --contents --articles-only --since-days 180
+```
+
+Après la reprise, dans l'UI : relire le gabarit « Article – <produit> » (Gabarits), vérifier quelques contenus (aperçu, BAT),
+puis activer et planifier. Les images restent hébergées sur le site media (`imgBaseUrl`) et les liens pointent vers lui.
+
 ## 2. Ce qui n'est pas repris (listé par `--inventory`)
 
 - **Expéditeurs** (`email_sender` : nom, adresse, `router`, `config` avec identifiants ESP) et **configurations d'envoi**
   (`email_sending_config`) : à recréer dans l'UI (Routeurs, Expéditeurs, Configurations d'envoi). Les identifiants ESP sont
   chiffrés différemment des deux côtés et les routeurs media (Brevo, SES, routeur Toolso) n'ont pas les mêmes options.
-- **Contenus, gabarits, slots, articles, campagnes** (`email_content`, `email_content_version`, `email_template`,
-  `email_slot*`, `article`…) : le modèle éditorial media (newsletters construites à partir d'articles et de publicités) n'a
-  pas d'équivalent dans les `Content`/`Schedule` de la v2.
+- **Newsletters dynamiques, slots, publicités natives** (`email_content` hors DEM, `email_slot*`, `[ad …]`, bannières) : le
+  modèle éditorial media (newsletter composée à l'envoi des meilleurs articles et publicités) n'a pas d'équivalent dans
+  les `Content`/`Schedule` de la v2. Les articles et les DEM sont repris un par un en contenus fixes (§ 1 bis).
 - **Stats agrégées** (`email_stats`, `contacts_stats`, `inscription_stats`, `contact_stats`, `*_stats`) : les stats v2 se
   reconstruisent à partir des événements (`update_contact_event_stats_aggregates`, `update_contacts_stats`…) ; l'historique
   agrégé media reste consultable dans media.
@@ -174,3 +205,6 @@ pas repris. Ordre conseillé :
 | `… --product <p>[,<p>…] [--dump] [--since-days N] [--skip-blacklist] [--skip-messages] [--batch-size N] [--yes]` | reprise |
 | `apps/api/scripts/migrate-from-media.js` (dans le conteneur `api`, `MEDIA_DATABASE_URL` dans l'environnement) | conversion proprement dite |
 | `apps/api/src/migration/mediaDatabase.js` | règles de correspondance ; test `test/integration/migrate-from-media.test.js` (schéma media de test : `test/fixtures/media-schema.sql`) |
+| `… --product <p> --contents [--articles-only \| --dems-only] [--ads-secret toolso-ads \| --ads-url <url>] [--all-articles] [--include-disabled] [--since-days N] [--dry-run]` | articles et DEM → contenus v2 inactifs |
+| `apps/api/scripts/migrate-contents-from-media.js` (`MEDIA_DATABASE_URL`, `ADS_DATABASE_URL`) | conversion des contenus |
+| `apps/api/src/migration/mediaContents.js` | gabarit d'article, rendu partiel Mustache, règles DEM ; test `test/integration/migrate-contents-from-media.test.js` (schéma ads de test : `test/fixtures/ads-schema.sql`) |

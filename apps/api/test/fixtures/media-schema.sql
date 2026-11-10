@@ -227,3 +227,90 @@ CREATE TABLE "user" (
     updated_at timestamp with time zone,
     role character varying(255)
 );
+
+-- Contenus (articles, versions de contenu, images, catégories) : lus par src/migration/mediaContents.js
+CREATE TABLE email_content_version (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name character varying(255),
+    created_at timestamp with time zone,
+    updated_at timestamp with time zone,
+    modified_at timestamp with time zone,
+    stats jsonb,
+    subject character varying(1000),
+    preview_text character varying(255),
+    variables jsonb,
+    email_content_id integer,
+    body text,
+    is_active boolean DEFAULT true,
+    archived boolean DEFAULT false,
+    index integer,
+    template_id integer,
+    articles jsonb,
+    design jsonb,
+    ads jsonb,
+    settings jsonb,
+    sender_name character varying(100)
+);
+
+CREATE TABLE image (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    slug character varying(255),
+    product_id integer,
+    title character varying(255),
+    width integer,
+    height integer,
+    created_at timestamp with time zone,
+    updated_at timestamp with time zone,
+    alt character varying(255),
+    content_type character varying(255),
+    advertiser_id integer
+);
+
+CREATE TABLE article (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    title character varying(255),
+    slug character varying(255),
+    content text,
+    featured_image jsonb,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    status character varying(255) DEFAULT 'draft',
+    product_id integer NOT NULL,
+    modified_at timestamp with time zone,
+    published_at timestamp with time zone,
+    views integer DEFAULT 0,
+    stats jsonb,
+    description text,
+    keywords jsonb,
+    short_description character varying(500),
+    content_blocks jsonb,
+    main_editor character varying(255),
+    featured_image_id integer,
+    last_stats jsonb,
+    customs jsonb,
+    distribution_settings jsonb,
+    sync_info jsonb,
+    cta_url character varying(500),
+    url character varying(255),
+    email_subject character varying(255),
+    article_template_id integer,
+    link character varying(500)
+);
+
+CREATE TABLE category (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    slug character varying(255),
+    name character varying(255),
+    created_at timestamp with time zone,
+    updated_at timestamp with time zone,
+    content text,
+    modified_at timestamp with time zone,
+    category_type_id integer
+);
+
+CREATE TABLE category_article (
+    category_id integer NOT NULL,
+    article_id integer NOT NULL,
+    created_at timestamp with time zone,
+    updated_at timestamp with time zone
+);
