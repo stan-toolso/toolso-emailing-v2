@@ -5,11 +5,18 @@
 #   sudo bin/migrate-from-media.sh <uid> --list-products            [source]     produits de la base media
 #   sudo bin/migrate-from-media.sh <uid> --product <p>[,<p>…] --inventory [source]   ce qui sera repris / non repris
 #   sudo bin/migrate-from-media.sh <uid> --product <p>[,<p>…] --dry-run   [source]   simulation (rien n'est écrit)
-#   sudo bin/migrate-from-media.sh <uid> --product <p>[,<p>…] [--dump] [source]      reprise
+#   sudo bin/migrate-from-media.sh <uid> --product <p>[,<p>…] [--dump] [source]      reprise des contacts
+#   sudo bin/migrate-from-media.sh <uid> --product <p> --contents [--articles-only | --dems-only] [source] [ads]
+#                                                                                      reprise des contenus (articles → Content
+#                                                                                      newsletter, DEM → Content marketing)
 # Source (une des deux formes) :
 #   --source-url postgres://user:mdp@hôte:5432/base    (ou variable MEDIA_DATABASE_URL déjà exportée)
 #   --media-instance <nom>   secret AWS Secrets Manager « media-<nom> » (un secret par base media, noms dans backend/build/update_model_all.js du dépôt media),
 #                            région MEDIA_AWS_REGION (défaut eu-west-3, celle de toolso-media), profil AWS_PROFILE.
+# Base ads (DEM, pour --contents) : --ads-url postgres://… (ou ADS_DATABASE_URL) ou --ads-secret <nom> (ex. toolso-ads,
+#   même région) ; sans elle, --contents ne reprend que les articles.
+# Options contenus : --all-articles (aussi brouillons / exclus de l'emailing), --include-disabled (publicités désactivées),
+#   --since-days N (articles publiés depuis N jours).
 # Options : --since-days N (envois repris en événements, défaut 90 ; 0 = seulement les événements de statut),
 #           --dump (pg_dump -Fc de la base media dans BACKUP_DIR/media-migration/ avant la reprise, archive),
 #           --skip-blacklist, --skip-messages, --batch-size N, --ssl-mode <require|no-verify|disable> (défaut no-verify :
@@ -25,6 +32,7 @@ PG_IMAGE="${PG_IMAGE:-postgres:17}"
 MEDIA_AWS_REGION="${MEDIA_AWS_REGION:-eu-west-3}"
 
 uid="" products="" source_url="${MEDIA_DATABASE_URL:-}" media_instance="" since_days="" batch_size="" ssl_mode="no-verify"
+ads_url="${ADS_DATABASE_URL:-}" ads_secret="" contents=0 articles_only=0 dems_only=0 all_articles=0 include_disabled=0
 mode="migrate" do_dump=0 skip_blacklist=0 skip_messages=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -34,6 +42,13 @@ while [[ $# -gt 0 ]]; do
     --since-days) since_days="${2:-}"; shift 2 ;;
     --batch-size) batch_size="${2:-}"; shift 2 ;;
     --ssl-mode) ssl_mode="${2:-}"; shift 2 ;;
+    --ads-url) ads_url="${2:-}"; shift 2 ;;
+    --ads-secret) ads_secret="${2:-}"; shift 2 ;;
+    --contents) contents=1; shift ;;
+    --articles-only) articles_only=1; shift ;;
+    --dems-only) dems_only=1; shift ;;
+    --all-articles) all_articles=1; shift ;;
+    --include-disabled) include_disabled=1; shift ;;
     --list-products) mode="list"; shift ;;
     --inventory) mode="inventory"; shift ;;
     --dry-run) mode="dry-run"; shift ;;
@@ -41,7 +56,7 @@ while [[ $# -gt 0 ]]; do
     --skip-blacklist) skip_blacklist=1; shift ;;
     --skip-messages) skip_messages=1; shift ;;
     --yes) export ASSUME_YES=1; shift ;;
-    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
     --*) die "Option inconnue : $1" ;;
     *) [[ -z "$uid" ]] || die "Un seul identifiant de base attendu."; uid="$1"; shift ;;
   esac
@@ -78,6 +93,32 @@ elif [[ -n "$source_url" ]]; then
 else
   die "Source media non précisée : --source-url <url> (ou MEDIA_DATABASE_URL) ou --media-instance <nom>."
 fi
+if [[ "$contents" == "1" && "$articles_only" == "0" ]]; then
+  if [[ -n "$ads_secret" ]]; then
+    [[ -z "$ads_url" ]] || die "--ads-secret et --ads-url sont exclusifs."
+    require_aws
+    json="$(AWS_REGION="$MEDIA_AWS_REGION" aws_secret_json "$ads_secret")" || die "Lecture du secret $ads_secret impossible (région $MEDIA_AWS_REGION)."
+    ads_host="$(jq -r '.host // empty' <<<"$json")"; ads_port="$(jq -r '.port // 5432' <<<"$json")"
+    ads_db="$(jq -r '.database // .dbname // empty' <<<"$json")"; ads_user="$(jq -r '.username // .user // empty | @uri' <<<"$json")"
+    ads_pass="$(jq -r '.password // empty | @uri' <<<"$json")"
+    unset json
+    [[ -n "$ads_host" && -n "$ads_db" && -n "$ads_user" && -n "$ads_pass" ]] || die "Secret $ads_secret incomplet."
+    ads_url="postgres://$ads_user:$ads_pass@$ads_host:$ads_port/$ads_db"
+    unset ads_pass
+    info "Base ads : secret $ads_secret → $ads_host:$ads_port/$ads_db"
+  elif [[ -n "$ads_url" ]]; then
+    [[ "$ads_url" =~ ^postgres(ql)?:// ]] || die "--ads-url attend une URL postgres://…"
+    info "Base ads : $(sed -E 's|://([^:/@]+)(:[^@]*)?@|://\1:***@|' <<<"$ads_url")"
+  elif [[ "$dems_only" == "1" ]]; then
+    die "Les DEM sont dans la base ads : --ads-secret toolso-ads ou --ads-url <url>."
+  else
+    warn "Pas de base ads (--ads-secret / --ads-url) : seuls les articles seront repris."
+  fi
+  if [[ -n "$ads_url" ]]; then
+    export ADS_DATABASE_URL="${ads_url%%\?*}?sslmode=$ssl_mode"
+  fi
+  unset ads_url
+fi
 base_url="${source_url%%\?*}"
 libpq_ssl="$ssl_mode"; [[ "$libpq_ssl" == "no-verify" ]] && libpq_ssl="require"
 export MEDIA_DATABASE_URL="$base_url?sslmode=$ssl_mode"
@@ -101,6 +142,34 @@ run_node() {
   # conteneur api jetable de l'instance (DATABASE_URL, RESOURCE_UID, TZ de son .env) ; MEDIA_DATABASE_URL vient de cet environnement
   compose_instance "$uid" run --rm --no-deps -e MEDIA_DATABASE_URL api node scripts/migrate-from-media.js "$@"
 }
+run_node_contents() {
+  compose_instance "$uid" run --rm --no-deps -e MEDIA_DATABASE_URL -e ADS_DATABASE_URL api node scripts/migrate-contents-from-media.js "$@"
+}
+
+if [[ "$contents" == "1" ]]; then
+  [[ "$mode" == "migrate" || "$mode" == "dry-run" ]] || die "--contents s'utilise avec --dry-run ou sans mode (reprise)."
+  cargs=(--product "$products")
+  [[ "$articles_only" == "1" ]] && cargs+=(--articles-only)
+  [[ "$dems_only" == "1" ]] && cargs+=(--dems-only)
+  [[ "$all_articles" == "1" ]] && cargs+=(--all-articles)
+  [[ "$include_disabled" == "1" ]] && cargs+=(--include-disabled)
+  [[ -n "$since_days" ]] && cargs+=(--since-days "$since_days")
+  if [[ "$mode" == "dry-run" ]]; then
+    run_node_contents "${cargs[@]}" --dry-run
+    exit $?
+  fi
+  warn "Les articles et DEM des produits « $products » vont être ajoutés aux contenus de emailing_$uid (inactifs ; ceux déjà repris sont ignorés)."
+  confirm "Continuer ?" || die "Abandon."
+  log_dir="${BACKUP_DIR:-/var/backups/toolso-emailing}/media-migration"
+  install -d -m 0700 "$log_dir"
+  log_file="$log_dir/contents_${uid}_$(date +%Y-%m-%d_%H%M%S).log"
+  info "Reprise des contenus dans emailing_$uid (journal : $log_file)"
+  if run_node_contents "${cargs[@]}" 2>&1 | tee "$log_file"; then
+    ok "Contenus repris. Dans l'UI : vérifier le gabarit « Article – <produit> » (Gabarits), activer les contenus et les rattacher à des planifications."
+    exit 0
+  fi
+  die "La reprise des contenus a échoué (voir $log_file)."
+fi
 
 if [[ "$mode" != "migrate" ]]; then
   run_node "${args[@]}"
