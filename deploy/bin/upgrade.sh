@@ -2,7 +2,8 @@
 # Mise à jour de la plateforme et de toutes les instances :
 #   git pull (sauf --no-pull), build des images, puis pour chaque instance : arrêt des workers et
 #   du scheduler, sync-model, redémarrage api puis workers/scheduler ; enfin access (sync-model,
-#   redémarrage) et nginx (nouvelle image UI, configuration regénérée).
+#   redémarrage) et nginx (nouvelle image UI, configuration regénérée). Selon le rôle du serveur :
+#   control = access et interface seulement ; data = instances et nginx sans interface.
 #   sudo bin/upgrade.sh [--no-pull] [--only <uid>] [--no-build]
 source "$(dirname "$0")/lib.sh"
 require_docker
@@ -25,8 +26,14 @@ if [[ "$pull" == "1" ]]; then
   git -C "$REPO_DIR" pull --ff-only
 fi
 if [[ "$build" == "1" ]]; then
-  info "Construction des images"
-  compose_platform --profile build build --pull
+  info "Construction des images (rôle $SERVER_ROLE)"
+  case "$SERVER_ROLE" in
+    all) compose_platform --profile build build --pull ;;
+    control) compose_platform build --pull ;;
+    data)
+      compose_platform --profile build build --pull api-image
+      compose_platform pull nginx_edge ;;
+  esac
 fi
 
 upgrade_instance() {
@@ -54,13 +61,16 @@ for uid in $(list_instances); do
   upgrade_instance "$uid"
 done
 
-info "access : sync-model puis redémarrage"
-compose_platform run --rm --no-deps access npm run sync-model
-compose_platform up -d access
-wait_http_ok access http://127.0.0.1:4000/health 30 || warn "access ne répond pas encore sur /health."
-
-info "nginx : nouvelle image UI et configuration"
-compose_platform up -d nginx
+if role_has_access; then
+  info "access : sync-model puis redémarrage"
+  compose_platform run --rm --no-deps access npm run sync-model
+  compose_platform up -d access
+  wait_http_ok access http://127.0.0.1:4000/health 30 || warn "access ne répond pas encore sur /health."
+  info "nginx : nouvelle image UI et configuration"
+else
+  info "nginx : image et configuration"
+fi
+compose_platform up -d "$(nginx_service)"
 "$DEPLOY_DIR/bin/render-nginx.sh" --no-reload
 nginx_reload
 

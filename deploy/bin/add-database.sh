@@ -7,11 +7,14 @@
 #
 # Options : --admin <email> (administrateur de la base dans access, défaut ADMIN_EMAIL),
 #           --skip-register (ne pas appeler add-database de l'access API), --no-tls (pas de certificat tracking).
+# Serveur de bases (SERVER_ROLE=data) : la base est enregistrée sur le serveur de contrôle par SSH
+# (CONTROL_SSH de env/platform.env), sinon la commande à y lancer est affichée.
 # Relançable : une instance existante garde son .env (mot de passe, secrets), son compose et sa conf
 # nginx sont regénérés, TRACKING_HOSTS est mis à jour si des domaines sont passés.
 source "$(dirname "$0")/lib.sh"
 require_docker
 load_platform_env
+role_has_instances || die "Serveur de contrôle (SERVER_ROLE=control) : les bases s'installent sur un serveur de bases (docs/09-parc-de-serveurs.md)."
 
 admin="" skip_register=0 no_tls=0
 positional=()
@@ -20,7 +23,7 @@ while [[ $# -gt 0 ]]; do
     --admin) admin="$2"; shift 2 ;;
     --skip-register) skip_register=1; shift ;;
     --no-tls) no_tls=1; shift ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     --*) die "Option inconnue : $1" ;;
     *) positional+=("$1"); shift ;;
   esac
@@ -33,8 +36,9 @@ admin="${admin:-${ADMIN_EMAIL:-}}"
 
 container_running postgres || die "PostgreSQL n'est pas démarré (bin/compose.sh platform up -d)."
 load_env "$POSTGRES_ENV"
-load_env "$ACCESS_ENV"
-: "${JWT_SECRET:?JWT_SECRET manquant dans env/access.env}"
+# Secret JWT du parc (env/access.env ; sur un serveur de bases, ce fichier ne contient que lui).
+JWT_SECRET="$(env_get "$ACCESS_ENV" JWT_SECRET)"
+[[ -n "$JWT_SECRET" ]] || die "JWT_SECRET manquant dans env/access.env."
 
 dir="$(instance_dir "$uid")"
 env_file="$dir/.env"
@@ -74,7 +78,7 @@ if [[ ! -f "$env_file" ]]; then
   info "Génération de $env_file"
   render_template "$DEPLOY_DIR/templates/instance.env" \
     "UID=$uid" "DATE=$(date -Iseconds)" "DB_PASSWORD=$db_password" "JWT_SECRET=$JWT_SECRET" \
-    "PUBLIC_URL=$PUBLIC_URL" "TRACKING_HOSTS=$tracking_hosts" \
+    "UI_URL=$UI_URL" "API_BASE_URL=$PUBLIC_URL" "ACCESS_API_URL=$INSTANCE_ACCESS_API_URL" "TRACKING_HOSTS=$tracking_hosts" \
     "SMTP_URL=${SMTP_URL:-}" "MAIL_FROM=${MAIL_FROM:-}" "SUPPORT_EMAIL=${SUPPORT_EMAIL:-${ADMIN_EMAIL:-}}" "TZ=$TZ" \
     > "$env_file"
   chmod 600 "$env_file"
@@ -110,14 +114,19 @@ fi
 # ---------- 4. Enregistrement dans l'access API ----------
 api_endpoint="$PUBLIC_URL/api/$uid"
 if [[ "$skip_register" == "0" ]]; then
-  container_running access || die "access n'est pas démarré : impossible d'enregistrer la base (bin/compose.sh platform up -d access)."
-  info "Enregistrement dans l'access API ($api_endpoint)"
+  if role_has_access; then
+    info "Enregistrement dans l'access API ($api_endpoint)"
+  else
+    info "Enregistrement sur le serveur de contrôle $CONTROL_URL ($api_endpoint)"
+  fi
   args=(--uid "$uid" --name "$name" --api-endpoint "$api_endpoint" --entreprise "$company")
   [[ -n "$admin" ]] && args+=(--admin "$admin")
-  if compose_platform exec -T access npm run add-database -- "${args[@]}"; then
+  rc=0
+  register_database "${args[@]}" || rc=$?
+  if [[ "$rc" == "0" ]]; then
     ok "Base enregistrée dans access."
-  else
-    warn "add-database (access) a échoué : base déjà enregistrée ? Vérifier dans l'UI (Sources) ou relancer avec --skip-register."
+  elif [[ "$rc" != "2" ]]; then
+    warn "Enregistrement dans access échoué : vérifier l'accès au serveur de contrôle / l'UI (Sources), ou relancer avec --skip-register."
   fi
 fi
 
@@ -133,6 +142,7 @@ cat <<MSG
 $(ok "Instance $uid prête.")
    API      : $api_endpoint   (santé : $api_endpoint/health)
    Fichiers : $PUBLIC_URL/files/$uid/
+   Interface: $UI_URL
    Tracking : ${tracking_hosts:-aucun domaine}
    Stack    : bin/compose.sh $uid ps  ·  bin/logs.sh $uid  ·  bin/psql.sh $uid
 MSG

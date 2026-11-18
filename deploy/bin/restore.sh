@@ -31,7 +31,7 @@ if [[ "$do_all" == "1" ]]; then
   for f in "$src"/*.dump; do
     [[ -e "$f" ]] || continue
     name="$(basename "$f" .dump)"
-    [[ "$name" == "access" ]] && dbs+=(access) || dbs+=("${name#emailing_}")
+    if [[ "$name" == "access" ]]; then role_has_access && dbs+=(access); else dbs+=("${name#emailing_}"); fi
   done
   for f in "$src"/files_*.tar.gz; do
     [[ -e "$f" ]] || continue
@@ -54,6 +54,7 @@ load_platform_env
 restore_db() {
   local target="$1" db role dump
   if [[ "$target" == "access" ]]; then
+    role_has_access || die "Serveur de bases : pas de base access ici (elle est sur le serveur de contrôle)."
     db=access; role=access
   else
     require_uid "$target"; db="emailing_$target"; role="emailing_$target"

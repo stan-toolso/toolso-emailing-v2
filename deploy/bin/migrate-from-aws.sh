@@ -36,6 +36,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -n "$uid" || "$do_access" == "1" ]] || die "Usage : $0 <uid> [--dump-only | --restore-only <fichier>] [--access] (voir --help)"
+[[ "$do_access" == "0" ]] || role_has_access || die "--access se lance sur le serveur de contrôle (SERVER_ROLE=control ou all), pas sur un serveur de bases."
+[[ -z "$uid" ]] || role_has_instances || die "Serveur de contrôle : la reprise d'une base se fait sur un serveur de bases."
 [[ -z "$uid" ]] || require_instance "$uid"
 [[ "$jobs" =~ ^[0-9]+$ && "$jobs" -ge 1 ]] || die "--jobs attend un entier ≥ 1."
 if [[ -n "$restore_file" ]]; then

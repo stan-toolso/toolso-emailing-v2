@@ -102,6 +102,70 @@ load_platform_env() {
   export PUBLIC_URL="${PUBLIC_SCHEME}://${PUBLIC_HOST}"
   export TOOLSO_DATA_DIR="${TOOLSO_DATA_DIR:-/var/lib/toolso-emailing}"
   export TZ="${TZ:-Europe/Paris}"
+  export SERVER_ROLE="${SERVER_ROLE:-all}"
+  valid_role "$SERVER_ROLE" || die "SERVER_ROLE doit valoir all, control ou data (actuel : $SERVER_ROLE)."
+  # Adresses vues par les instances : interface et access API (sur ce serveur, ou sur le serveur de contrôle).
+  if [[ "$SERVER_ROLE" == "data" ]]; then
+    : "${CONTROL_URL:?CONTROL_URL manquant dans env/platform.env (serveur de bases : URL du serveur de contrôle, ex. https://emailing.exemple.com)}"
+    CONTROL_URL="${CONTROL_URL%/}"
+    export CONTROL_URL
+    export UI_URL="$CONTROL_URL"
+    export INSTANCE_ACCESS_API_URL="$CONTROL_URL/access/graphql"
+  else
+    export UI_URL="$PUBLIC_URL"
+    export INSTANCE_ACCESS_API_URL="http://access:4000/graphql"
+  fi
+  export CONTROL_DEPLOY_DIR="${CONTROL_DEPLOY_DIR:-$DEPLOY_DIR}"
+}
+
+# ---------- rôle du serveur (SERVER_ROLE de env/platform.env) ----------
+#   all     : serveur unique (access, interface, PostgreSQL, instances) — comportement historique, valeur par défaut
+#   control : serveur de contrôle (access + interface + PostgreSQL de la base access), aucune instance
+#   data    : serveur de bases (PostgreSQL + instances + nginx sans interface), enregistre ses bases
+#             auprès du serveur de contrôle (CONTROL_URL, CONTROL_SSH)
+valid_role() { [[ "$1" == "all" || "$1" == "control" || "$1" == "data" ]]; }
+server_role() {
+  # Rôle courant, même si env/platform.env n'a pas été chargé (compose.sh, logs.sh).
+  local role="${SERVER_ROLE:-}"
+  [[ -n "$role" ]] || role="$(env_get "$PLATFORM_ENV" SERVER_ROLE)"
+  printf '%s' "${role:-all}"
+}
+role_has_access() { [[ "$(server_role)" != "data" ]]; }       # access + interface sur ce serveur
+role_has_instances() { [[ "$(server_role)" != "control" ]]; } # instances (bases emailing) sur ce serveur
+require_role() {
+  # require_role rôle… : arrête le script si le rôle courant n'est pas dans la liste.
+  local current r
+  current="$(server_role)"
+  for r in "$@"; do [[ "$current" == "$r" ]] && return 0; done
+  die "Commande indisponible sur un serveur de rôle « $current » (attendu : $*)."
+}
+# Service (et conteneur) nginx de la stack plateforme : image de l'interface (all, control) ou nginx nu (data).
+nginx_service() { if role_has_access; then echo nginx; else echo nginx_edge; fi; }
+
+# control_ssh commande… : exécute une commande sur le serveur de contrôle (CONTROL_SSH, ex. root@emailing.exemple.com).
+# Les arguments sont protégés (printf %q). Échoue si CONTROL_SSH n'est pas défini.
+control_ssh() {
+  [[ -n "${CONTROL_SSH:-}" ]] || return 1
+  require_cmd ssh
+  local cmd
+  cmd="$(printf '%q ' "$@")"
+  ssh -o BatchMode=yes -o ConnectTimeout=15 "$CONTROL_SSH" "$cmd"
+}
+
+# register_database args… : déclare (ou met à jour) une base dans l'access API, en local ou sur le serveur de contrôle.
+#   register_database --uid u --name n --api-endpoint url --entreprise e [--admin email]
+# Sur un serveur de bases sans CONTROL_SSH : affiche la commande à lancer sur le serveur de contrôle et renvoie 2.
+register_database() {
+  if role_has_access; then
+    container_running access || die "access n'est pas démarré : impossible d'enregistrer la base (bin/compose.sh platform up -d access)."
+    compose_platform exec -T access npm run add-database -- "$@"
+  elif [[ -n "${CONTROL_SSH:-}" ]]; then
+    control_ssh "$CONTROL_DEPLOY_DIR/bin/register-database.sh" "$@"
+  else
+    warn "CONTROL_SSH non défini : enregistrer la base sur le serveur de contrôle avec"
+    printf '     sudo %s/bin/register-database.sh %s\n' "$CONTROL_DEPLOY_DIR" "$(printf '%q ' "$@")"
+    return 2
+  fi
 }
 
 random_secret() { openssl rand -hex "${1:-32}"; }
@@ -157,7 +221,10 @@ require_instance() {
 
 # ---------- docker compose ----------
 compose_platform() {
-  docker compose --project-directory "$DEPLOY_DIR" --env-file "$PLATFORM_ENV" -f "$DEPLOY_DIR/docker-compose.yml" "$@"
+  # Profil du rôle : « ui » (access + nginx avec l'interface) ou « edge » (nginx seul, serveur de bases).
+  local profile=ui
+  role_has_access || profile=edge
+  docker compose --project-directory "$DEPLOY_DIR" --env-file "$PLATFORM_ENV" -f "$DEPLOY_DIR/docker-compose.yml" --profile "$profile" "$@"
 }
 compose_instance() {
   local uid="$1"; shift
@@ -188,9 +255,11 @@ wait_http_ok() {
 }
 
 nginx_reload() {
-  if container_running nginx; then
-    docker exec nginx nginx -t >/dev/null || die "Configuration nginx invalide (docker exec nginx nginx -t)."
-    docker exec nginx nginx -s reload
+  local c
+  c="$(nginx_service)"
+  if container_running "$c"; then
+    docker exec "$c" nginx -t >/dev/null || die "Configuration nginx invalide (docker exec $c nginx -t)."
+    docker exec "$c" nginx -s reload
     ok "nginx rechargé."
   else
     warn "nginx n'est pas démarré : configuration regénérée, elle sera prise au prochain démarrage."

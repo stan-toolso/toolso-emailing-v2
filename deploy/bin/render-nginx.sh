@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Regénère toute la configuration nginx dérivée de l'état des instances et du mode TLS :
-#   conf.d/05-mode.conf, snippets/listen-main.conf, conf.d/instances/<uid>.conf, conf.d/tracking/<uid>.conf
+# Regénère toute la configuration nginx dérivée du rôle du serveur, de l'état des instances et du mode TLS :
+#   conf.d/05-mode.conf, conf.d/10-main.conf (interface ou serveur de bases), snippets/listen-main.conf,
+#   conf.d/instances/<uid>.conf, conf.d/tracking/<uid>.conf
 # puis recharge nginx (sauf --no-reload). Idempotent ; appelé par install, add-database, remove-database, tls.
 source "$(dirname "$0")/lib.sh"
 load_platform_env
@@ -19,9 +20,14 @@ if [[ "$mode" == "tls" && ! -f "$LE_DIR/main/fullchain.pem" ]]; then
 fi
 [[ "$mode" == "tls" || "$mode" == "plain" ]] || die "TLS_MODE doit valoir tls ou plain (actuel : $TLS_MODE)."
 
-info "Configuration nginx : mode $mode, hôte $PUBLIC_HOST"
+info "Configuration nginx : rôle $SERVER_ROLE, mode $mode, hôte $PUBLIC_HOST"
 cp "$TPL/mode-$mode.conf" "$NGINX_DIR/conf.d/05-mode.conf"
 cp "$TPL/listen-main-$mode.conf" "$NGINX_DIR/snippets/listen-main.conf"
+if [[ "$SERVER_ROLE" == "data" ]]; then
+  render_template "$TPL/main-data.conf" "CONTROL_URL=$CONTROL_URL" > "$NGINX_DIR/conf.d/10-main.conf"
+else
+  cp "$TPL/main-ui.conf" "$NGINX_DIR/conf.d/10-main.conf"
+fi
 
 # Fragments d'instance : on repart de zéro pour refléter exactement deploy/instances/.
 find "$NGINX_DIR/conf.d/instances" "$NGINX_DIR/conf.d/tracking" -name '*.conf' -type f -delete
