@@ -5,6 +5,10 @@ DNS et TLS, mise à jour, sauvegarde, dimensionnement et opérations courantes. 
 d'architecture (processus, ports, URL, variables) est décrit dans `02-architecture-cible.md`
 et dans l'instruction de contexte « architecture-instance-autonome ».
 
+Ce guide décrit le serveur unique (`SERVER_ROLE=all`). Pour un parc — un serveur de contrôle (comptes et interface)
+et des serveurs de bases ajoutés au fur et à mesure — voir `docs/09-parc-de-serveurs.md` : mêmes scripts, avec
+`install.sh --role control | data`.
+
 ## 1. Vue d'ensemble
 
 ```

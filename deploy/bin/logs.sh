@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Journaux : bin/logs.sh platform [postgres|access|nginx]  ·  bin/logs.sh <uid> [api|worker|worker_huge|scheduler]
+# Journaux : bin/logs.sh platform [postgres|access|nginx|nginx_edge]  ·  bin/logs.sh <uid> [api|worker|worker_huge|scheduler]
 # Options docker compose logs transmises (ex. --tail 50, --since 1h) ; -f par défaut.
 source "$(dirname "$0")/lib.sh"
 target="${1:-}"; shift || true

@@ -4,7 +4,10 @@
 # deploy/instances/<uid>/ et rejoignent le réseau Docker externe « toolso ».
 #
 # Toujours piloter cette stack par bin/compose.sh platform … (qui passe
-# --env-file env/platform.env pour l'interpolation des ${…} ci-dessous) :
+# --env-file env/platform.env pour l'interpolation des ${…} ci-dessous, et le
+# profil du rôle du serveur, SERVER_ROLE de env/platform.env) :
+#   - profil « ui »   (rôles all et control) : access + nginx avec l'interface ;
+#   - profil « edge » (rôle data, serveur de bases) : nginx seul, sans interface ni access.
 #   bin/compose.sh platform up -d
 #   bin/compose.sh platform --profile build build       # construit aussi l'image api
 #
@@ -79,6 +82,7 @@ services:
       context: ../apps/access
     image: toolso-emailing-access:latest
     container_name: access
+    profiles: [ui]
     restart: unless-stopped
     networks: [toolso]
     env_file:
@@ -106,6 +110,7 @@ services:
         REACT_APP_ACCESS_API_ENDPOINT: /access/graphql
     image: toolso-emailing-ui:latest
     container_name: nginx
+    profiles: [ui]
     restart: unless-stopped
     networks: [toolso]
     ports:
@@ -120,6 +125,33 @@ services:
       - ${TOOLSO_DATA_DIR:-/var/lib/toolso-emailing}/files:/var/lib/toolso-emailing/files:ro
     depends_on:
       - access
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/nginx-health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: ${NGINX_MEM_LIMIT:-128m}
+    logging: *logging
+
+  # nginx d'un serveur de bases (SERVER_ROLE=data) : même configuration (conf.d générée par
+  # bin/render-nginx.sh), image nginx officielle sans l'interface : /api/<uid>/, /files/<uid>/ et
+  # domaines de tracking. Un seul des deux nginx tourne sur un serveur (bin/lib.sh : nginx_service).
+  nginx_edge:
+    image: ${NGINX_EDGE_IMAGE:-nginx:1.27-alpine}
+    container_name: nginx_edge
+    profiles: [edge]
+    restart: unless-stopped
+    networks: [toolso]
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/snippets:/etc/nginx/snippets:ro
+      - ${TOOLSO_DATA_DIR:-/var/lib/toolso-emailing}/letsencrypt:/etc/letsencrypt:ro
+      - ${TOOLSO_DATA_DIR:-/var/lib/toolso-emailing}/certbot-www:/var/www/certbot:ro
+      - ${TOOLSO_DATA_DIR:-/var/lib/toolso-emailing}/files:/var/lib/toolso-emailing/files:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/nginx-health || exit 1"]
       interval: 30s

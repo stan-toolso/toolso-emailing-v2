@@ -2,18 +2,21 @@
 # Retire une instance : arrêt de sa stack, suppression des fragments nginx, archivage de sa
 # configuration dans deploy/instances/.removed/. La base PostgreSQL et les fichiers sont
 # conservés, sauf --purge (suppression définitive base + rôle + fichiers + certificat tracking).
-#   sudo bin/remove-database.sh <uid> [--purge] [--yes]
-# L'enregistrement dans l'access API n'est pas retiré automatiquement (à faire dans l'UI).
+#   sudo bin/remove-database.sh <uid> [--purge] [--unregister] [--yes]
+# --unregister : désactive aussi la base dans l'access API (en local, ou sur le serveur de contrôle par
+# CONTROL_SSH). Sans cette option l'enregistrement est conservé : c'est le cas lors d'un déplacement vers
+# un autre serveur, où l'apiEndpoint a déjà été mis à jour.
 source "$(dirname "$0")/lib.sh"
 require_docker
 load_platform_env
 
-uid="" purge=0
+uid="" purge=0 unregister=0
 for arg in "$@"; do
   case "$arg" in
     --purge) purge=1 ;;
+    --unregister) unregister=1 ;;
     --yes) export ASSUME_YES=1 ;;
-    -h|--help) sed -n '2,7p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
     *) uid="$arg" ;;
   esac
 done
@@ -67,6 +70,21 @@ if [[ "$purge" == "1" ]]; then
   fi
 else
   ok "Base $db et fichiers $TOOLSO_DATA_DIR/files/$uid conservés (restauration : remettre le dossier archivé dans deploy/instances/$uid puis bin/add-database.sh)."
+fi
+
+if [[ "$unregister" == "1" ]]; then
+  info "Désactivation de la base $uid dans l'access API"
+  if role_has_access; then
+    if container_running access; then
+      compose_platform exec -T access npm run --silent set-database-endpoint -- --uid "$uid" --disable || warn "Désactivation dans access échouée."
+    else
+      warn "access n'est pas démarré : base non désactivée (bin/register-database.sh --uid $uid --disable)."
+    fi
+  elif [[ -n "${CONTROL_SSH:-}" ]]; then
+    control_ssh "$CONTROL_DEPLOY_DIR/bin/register-database.sh" --uid "$uid" --disable || warn "Désactivation sur le serveur de contrôle échouée."
+  else
+    warn "CONTROL_SSH non défini : sur le serveur de contrôle, lancer  sudo $CONTROL_DEPLOY_DIR/bin/register-database.sh --uid $uid --disable"
+  fi
 fi
 
 "$DEPLOY_DIR/bin/render-nginx.sh"

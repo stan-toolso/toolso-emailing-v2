@@ -32,7 +32,7 @@ issue_cert() {
               --email "$ADMIN_EMAIL" --cert-name "$name" "${extra[@]}")
   local d
   for d in "$@"; do args+=(-d "$d"); done
-  container_running nginx || die "nginx doit être démarré pour servir le défi ACME (bin/compose.sh platform up -d)."
+  container_running "$(nginx_service)" || die "nginx doit être démarré pour servir le défi ACME (bin/compose.sh platform up -d)."
   info "Demande du certificat « $name » pour : $*"
   certbot_run "${args[@]}"
 }
