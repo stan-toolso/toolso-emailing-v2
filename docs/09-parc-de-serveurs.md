@@ -119,6 +119,10 @@ Serveur dédié Ubuntu 24.04 (ex. Scaleway Elastic Metal EM-I120E-NVMe), disques
 (utilisateur et mot de passe demandés au clavier ; met à jour platform.env, access.env et le .env de chaque base, puis
 recrée les conteneurs ; `--check` montre la configuration sans les identifiants).
 
+**Copie distante des sauvegardes**, sur chaque serveur : `sudo deploy/bin/set-backup-remote.sh --bucket <bucket> [--region nl-ams]`
+(clé d'accès Object Storage demandée au clavier, écrite dans `/root/.config/rclone/rclone.conf` ; préfixe = nom du serveur ;
+`--check` vérifie l'accès). Bucket dans une autre région que les serveurs. Restauration : `bin/restore.sh` (§ 7).
+
 ## 4. Ajouter une base
 
 Sur le serveur de bases choisi (celui qui n'est pas plein, `bin/capacity.sh`) :
