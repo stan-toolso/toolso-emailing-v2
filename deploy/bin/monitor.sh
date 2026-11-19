@@ -8,7 +8,7 @@
 #   sudo bin/monitor.sh --test-mail
 #
 # Contrôles : conteneurs Docker (arrêtés, en redémarrage, « unhealthy ») ; URL publiques (interface et access sur le
-# serveur de contrôle, /api/<uid>/health de chaque base sur un serveur de bases) ; PostgreSQL ; disque des données
+# serveur de contrôle ; /api/<uid>/health de chaque base et access du serveur de contrôle sur un serveur de bases) ; PostgreSQL ; disque des données
 # (MONITOR_MAX_DISK_PCT, 85) ; mémoire disponible (MONITOR_MIN_MEM_PCT, 5) ; RAID logiciel ; certificats Let's Encrypt
 # (MONITOR_CERT_DAYS, 14 jours) ; sauvegarde de moins de 26 h et copie distante faite.
 # État : /var/lib/toolso-emailing/monitor.state ; journal conseillé : /var/log/toolso-emailing-monitor.log.
@@ -90,6 +90,8 @@ fi
 if role_has_instances; then
   for uid in $(list_instances); do check_url "${PUBLIC_SCHEME}://${PUBLIC_HOST}/api/$uid/health"; done
 fi
+# Serveur de bases : surveille aussi le serveur de contrôle (qui ne peut pas alerter sur sa propre panne).
+[[ "$SERVER_ROLE" == "data" && -n "${CONTROL_URL:-}" ]] && check_url "${CONTROL_URL%/}/access/health"
 
 # --- Disque, mémoire, RAID ---
 disk_pct="$(df -P "$state_dir" | awk 'NR==2 { gsub("%", "", $5); print $5 }')"
