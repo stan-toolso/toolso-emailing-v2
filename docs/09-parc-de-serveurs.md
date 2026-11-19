@@ -123,6 +123,13 @@ recrée les conteneurs ; `--check` montre la configuration sans les identifiants
 (clé d'accès Object Storage demandée au clavier, écrite dans `/root/.config/rclone/rclone.conf` ; préfixe = nom du serveur ;
 `--check` vérifie l'accès). Bucket dans une autre région que les serveurs. Restauration : `bin/restore.sh` (§ 7).
 
+**Supervision** : `bin/monitor.sh` (cron toutes les 5 minutes, installé par `install.sh`) contrôle les conteneurs, les URL
+publiques, PostgreSQL, le disque, la mémoire, le RAID, les certificats et la sauvegarde de la nuit, et envoie un mail à
+`MONITOR_EMAIL` (défaut `ADMIN_EMAIL`) par le SMTP de la plateforme quand un problème apparaît, quand il disparaît, et une
+fois par jour s'il dure. `sudo deploy/bin/monitor.sh --report` affiche les contrôles ; `--test-mail` envoie un mail de test.
+Sur un serveur installé avant ce script, ajouter la ligne `*/5 * * * * root …/bin/monitor.sh >> /var/log/toolso-emailing-monitor.log 2>&1`
+à `/etc/cron.d/toolso-emailing`.
+
 ## 4. Ajouter une base
 
 Sur le serveur de bases choisi (celui qui n'est pas plein, `bin/capacity.sh`) :
