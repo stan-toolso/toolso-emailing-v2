@@ -10,12 +10,12 @@
 # venir de SMTP_USER / SMTP_PASSWORD. Ils sont encodés pour l'URL et jamais affichés.
 # Avec --ses-region : hôte email-smtp.<région>.amazonaws.com ; on saisit la clé d'accès IAM (ID et clé secrète) d'un
 # utilisateur autorisé à ses:SendRawEmail, et le mot de passe SMTP en est dérivé ici (algorithme SigV4 d'AWS).
-# Options : --port (défaut 587, STARTTLS), --no-restart (ne recrée pas les conteneurs), --check (affiche l'hôte et
+# Options : --port (défaut 587, STARTTLS ; 2587 avec --ses-region : Scaleway bloque 25, 465 et 587 en sortie), --no-restart (ne recrée pas les conteneurs), --check (affiche l'hôte et
 # l'expéditeur configurés, sans les identifiants).
 source "$(dirname "$0")/lib.sh"
 require_root
 
-smtp_host="" smtp_port=587 mail_from="" restart=1 check=0 ses_region=""
+smtp_host="" smtp_port="" mail_from="" restart=1 check=0 ses_region=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --host) smtp_host="$2"; shift 2 ;;
@@ -43,7 +43,11 @@ if [[ "$check" == "1" ]]; then
   exit 0
 fi
 
-[[ -n "$ses_region" ]] && smtp_host="${smtp_host:-email-smtp.$ses_region.amazonaws.com}"
+if [[ -n "$ses_region" ]]; then
+  smtp_host="${smtp_host:-email-smtp.$ses_region.amazonaws.com}"
+  smtp_port="${smtp_port:-2587}"   # port STARTTLS alternatif de SES, ouvert chez Scaleway
+fi
+smtp_port="${smtp_port:-587}"
 [[ -n "$smtp_host" ]] || die "--host (ex. smtp.exemple.com) ou --ses-region (ex. eu-west-1) requis."
 [[ -n "$mail_from" ]] || die "--from requis (ex. \"Toolso Emailing <no-reply@exemple.com>\")."
 [[ "$mail_from" != *'"'* ]] || die "--from ne doit pas contenir de guillemet."
