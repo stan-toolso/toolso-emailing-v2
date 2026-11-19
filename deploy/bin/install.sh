@@ -288,7 +288,8 @@ wait_http_ok access http://127.0.0.1:4000/health 30 || warn "access ne répond p
 generated_password=0
 if [[ -z "$su_password" ]]; then su_password="$(random_secret 12)"; generated_password=1; fi
 info "Superutilisateur access ($ADMIN_EMAIL)"
-if compose_platform exec -T access npm run create-superuser -- --email "$ADMIN_EMAIL" --password "$su_password"; then
+# Mot de passe par variable d'environnement : « npm run » recopierait la ligne de commande (et le mot de passe) dans la sortie.
+if compose_platform exec -T -e SUPERUSER_PASSWORD="$su_password" access node scripts/create-superuser.js --email "$ADMIN_EMAIL"; then
   if [[ "$generated_password" == "1" ]]; then
     printf '\n%s\n' "   Mot de passe du superutilisateur $ADMIN_EMAIL : $su_password   (notez-le, il n'est pas conservé)"
   fi

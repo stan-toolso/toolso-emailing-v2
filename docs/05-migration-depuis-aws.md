@@ -154,7 +154,7 @@ bascule, à conserver jusqu'au nettoyage AWS.
 
 Si l'access est repris : le superutilisateur créé par `install.sh` disparaît ; les comptes et mots de
 passe d'AWS sont repris tels quels (bcrypt), ainsi que les jetons en cours si le secret JWT a été
-repris. `compose.sh platform exec access npm run create-superuser -- …` recrée un superutilisateur si besoin.
+repris. `compose.sh platform exec -e SUPERUSER_PASSWORD=… access node scripts/create-superuser.js --email …` recrée un superutilisateur si besoin.
 
 ### Jour J : miroirs (facultatif, 15 à 60 min) [serveur]
 

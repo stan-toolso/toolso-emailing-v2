@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Crée ou met à jour un super-utilisateur :
 //   npm run create-superuser -- --email admin@exemple.com --password 'secret' [--firstname Prénom --lastname Nom]
+// Le mot de passe peut aussi venir de SUPERUSER_PASSWORD (préférable : npm recopie la ligne de commande dans sa sortie).
 require('dotenv').config();
 const { parseArgs } = require('util');
 const log = require('../src/log').getLogger('CreateSuperUser');
@@ -15,8 +16,9 @@ const { values } = parseArgs({
   }
 });
 
+values.password = values.password || process.env.SUPERUSER_PASSWORD;
 if (!values.email || !values.password) {
-  console.error('Usage: npm run create-superuser -- --email <email> --password <password> [--firstname <firstname>] [--lastname <lastname>]');
+  console.error('Usage: npm run create-superuser -- --email <email> --password <password>|SUPERUSER_PASSWORD [--firstname <firstname>] [--lastname <lastname>]');
   process.exit(2);
 }
 
