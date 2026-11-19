@@ -70,8 +70,13 @@ if container_running postgres; then
   conn_pct=$(( used_conns * 100 / max_conns ))
   check "Connexions PostgreSQL" "$used_conns / $max_conns (${conn_pct} %)" "$( [[ "$conn_pct" -ge "$max_conn" ]] && echo 1 || echo 0)" "< ${max_conn} %"
   # Taux de lecture en cache (depuis le dernier redémarrage ou reset des statistiques) : sous 99 %, la RAM ne suffit plus.
-  cache_hit="$(psql_admin -tAc "SELECT COALESCE(round(100.0 * sum(blks_hit) / NULLIF(sum(blks_hit) + sum(blks_read), 0), 2), 100) FROM pg_stat_database")"
-  check "Lectures servies par le cache PG" "${cache_hit} %" "$(lt "$cache_hit" "$min_cache" && echo 1 || echo 0)" "≥ ${min_cache} %"
+  # Ignoré tant qu'il y a trop peu de lectures (serveur neuf, statistiques remises à zéro) : le taux n'a pas de sens.
+  IFS='|' read -r cache_hit cache_reads < <(psql_admin -tAc "SELECT COALESCE(round(100.0 * sum(blks_hit) / NULLIF(sum(blks_hit) + sum(blks_read), 0), 2), 100) || '|' || COALESCE(sum(blks_hit) + sum(blks_read), 0) FROM pg_stat_database")
+  if [[ "${cache_reads:-0}" -ge "${CAPACITY_MIN_CACHE_READS:-1000000}" ]]; then
+    check "Lectures servies par le cache PG" "${cache_hit} %" "$(lt "$cache_hit" "$min_cache" && echo 1 || echo 0)" "≥ ${min_cache} %"
+  else
+    line "Lectures servies par le cache PG" "${cache_hit} % (${cache_reads} lectures : trop peu pour juger)"
+  fi
   total_size="$(psql_admin -tAc "SELECT pg_size_pretty(sum(pg_database_size(datname))) FROM pg_database WHERE datname NOT IN ('template0', 'template1')")"
   line "Taille totale des bases" "$total_size"
   if [[ "$quiet" == "0" ]]; then
