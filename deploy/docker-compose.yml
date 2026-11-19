@@ -110,6 +110,8 @@ services:
         REACT_APP_ACCESS_API_ENDPOINT: /access/graphql
     image: toolso-emailing-ui:latest
     container_name: nginx
+    ulimits:
+      nofile: 65536   # worker_connections 2048 × workers
     profiles: [ui]
     restart: unless-stopped
     networks: [toolso]
@@ -139,6 +141,8 @@ services:
   nginx_edge:
     image: ${NGINX_EDGE_IMAGE:-nginx:1.27-alpine}
     container_name: nginx_edge
+    ulimits:
+      nofile: 65536   # worker_connections 2048 × workers
     profiles: [edge]
     restart: unless-stopped
     networks: [toolso]
