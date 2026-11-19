@@ -37,8 +37,50 @@ const handleWebhook = async (router, body) => {
   }
 };
 
+/**
+ * Enveloppe SNS (abonnement HTTPS à un topic qui reçoit les événements d'un configuration set SES) :
+ * - SubscriptionConfirmation : confirmée en appelant SubscribeURL (hôte sns.<région>.amazonaws.com seulement) ;
+ * - Notification (livraison non « raw ») : l'événement SES est dans Message.
+ * Renvoie { done: réponse } si le message SNS est traité ici, sinon { event } (événement SES à traiter).
+ */
+const SNS_HOST = /^sns\.[a-z0-9-]+\.amazonaws\.com(\.cn)?$/;
+const unwrapSns = async (event) => {
+  if (!event || typeof event.Type !== 'string') {
+    return { event };
+  }
+  if (event.Type === 'SubscriptionConfirmation' || event.Type === 'UnsubscribeConfirmation') {
+    let url;
+    try {
+      url = new URL(event.SubscribeURL);
+    } catch (e) {
+      url = null;
+    }
+    if (event.Type === 'UnsubscribeConfirmation' || !url || url.protocol !== 'https:' || !SNS_HOST.test(url.hostname)) {
+      log.warn(`SNS ${event.Type} ignoré (topic ${event.TopicArn}, URL ${event.SubscribeURL})`);
+      return { done: 'Ignored' };
+    }
+    const res = await fetch(url.toString());
+    log.info(`Abonnement SNS confirmé pour ${event.TopicArn} (HTTP ${res.status})`);
+    return { done: res.ok ? 'Subscribed' : 'Subscription failed' };
+  }
+  if (event.Type === 'Notification' && typeof event.Message === 'string') {
+    try {
+      return { event: JSON.parse(event.Message) };
+    } catch (e) {
+      log.warn(`Notification SNS illisible (topic ${event.TopicArn})`);
+      return { done: 'Invalid message' };
+    }
+  }
+  return { event };
+};
+
 const handleSesEvent = async (event) => {
   event = JSON.parse(event.body);
+  const sns = await unwrapSns(event);
+  if (sns.done) {
+    return sns.done;
+  }
+  event = sns.event;
   if (event && event.notificationType && event.notificationType == 'Received') {
     return await handleMessage(event);
   }
@@ -659,4 +701,5 @@ const handleMessage = async (event) => {
   await (await getActionService()).newAction(ActionType.insert_contact_message, payload);
 };
 
-module.exports = { handleWebhook, handleSesEvent, handleToolsoEvent, handleSibEvent, untrackLink };
+module.exports = {
+  unwrapSns, handleWebhook, handleSesEvent, handleToolsoEvent, handleSibEvent, untrackLink };
