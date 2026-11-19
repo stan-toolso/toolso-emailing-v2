@@ -230,11 +230,12 @@ fi
 
 if [[ "$no_cron" == "0" ]]; then
   cat > /etc/cron.d/toolso-emailing <<CRON
-# Toolso Emailing : renouvellement TLS et sauvegarde quotidienne (généré par deploy/bin/install.sh)
+# Toolso Emailing : renouvellement TLS, sauvegarde quotidienne et supervision (généré par deploy/bin/install.sh)
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 17 3,15 * * * root $DEPLOY_DIR/bin/tls.sh renew >> /var/log/toolso-emailing-tls.log 2>&1
 30 2 * * * root $DEPLOY_DIR/bin/backup.sh >> /var/log/toolso-emailing-backup.log 2>&1
+*/5 * * * * root $DEPLOY_DIR/bin/monitor.sh >> /var/log/toolso-emailing-monitor.log 2>&1
 CRON
   if role_has_instances; then
     # Contrôle de capacité quotidien juste après le créneau d'envoi du matin (lignes ajoutées si un seuil est dépassé).
