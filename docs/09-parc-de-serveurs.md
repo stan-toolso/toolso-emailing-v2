@@ -114,6 +114,11 @@ Serveur dédié Ubuntu 24.04 (ex. Scaleway Elastic Metal EM-I120E-NVMe), disques
 3. **Accès aux bases sources** si l'on y reprend des bases (AWS, toolso-media) : ajouter l'IP du serveur aux groupes de
    sécurité concernés.
 
+**SMTP des mails de plateforme** (invitations, mot de passe oublié, BAT, alertes), sur chaque serveur du parc :
+`sudo deploy/bin/set-smtp.sh --host email-smtp.eu-west-1.amazonaws.com --from "Toolso Emailing <no-reply@exemple.com>"`
+(utilisateur et mot de passe demandés au clavier ; met à jour platform.env, access.env et le .env de chaque base, puis
+recrée les conteneurs ; `--check` montre la configuration sans les identifiants).
+
 ## 4. Ajouter une base
 
 Sur le serveur de bases choisi (celui qui n'est pas plein, `bin/capacity.sh`) :
