@@ -67,6 +67,10 @@ if [[ "$(psql_admin -tAc "SELECT 1 FROM pg_database WHERE datname = '$db'")" != 
 else
   ok "Base $db existante conservée."
 fi
+# Prérequis du SQL complémentaire de sync-model, créés en superutilisateur : le rôle de la base n'a pas CREATEROLE
+# (rôle grafanareader, partagé par toutes les bases du serveur) ; pg_trgm créée ici pour la même raison.
+psql_admin -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'grafanareader') THEN CREATE ROLE grafanareader NOLOGIN; END IF; END \$\$;" >/dev/null
+psql_admin -d "$db" -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" >/dev/null
 
 # ---------- 2. Fichiers de l'instance ----------
 install -d -m 0775 "$TOOLSO_DATA_DIR/files/$uid" "$TOOLSO_DATA_DIR/files/$uid/exports" "$TOOLSO_DATA_DIR/files/$uid/uploads"
