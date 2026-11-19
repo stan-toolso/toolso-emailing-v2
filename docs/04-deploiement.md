@@ -279,7 +279,7 @@ Le packaging suppose les interfaces suivantes (contrat d'architecture) :
   `WORKER_QUEUE`, `GET /health`, script `npm run sync-model` ; fichiers sous `FILES_DIR=/data/files`
   avec un sous-dossier `exports/` servi en public ; process exécuté en `node` (uid 1000) ou root.
 - `apps/access` : `Dockerfile` Node 22, `CMD ["node", "src/server.js"]`, port 4000, `GET /health`,
-  scripts `npm run sync-model`, `npm run create-superuser -- --email … --password …`,
+  scripts `npm run sync-model`, `node scripts/create-superuser.js --email …` (mot de passe dans `SUPERUSER_PASSWORD` : `npm run` le recopierait dans sa sortie),
   `npm run add-database -- --uid … --name … --api-endpoint … --entreprise … [--admin …]`.
 - `apps/ui` : `Dockerfile` produisant une image `nginx:1.27-alpine` avec le build dans
   `/usr/share/nginx/html` ; argument de build `REACT_APP_ACCESS_API_ENDPOINT` (défaut `/access/graphql`).
