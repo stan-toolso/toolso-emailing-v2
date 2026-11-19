@@ -49,6 +49,10 @@ services:
       ROLE: worker
       WORKER_QUEUE: default
       NODE_ENV: production
+    # Pas de serveur HTTP dans ce rôle : le HEALTHCHECK de l'image (GET /health) le marquerait « unhealthy ».
+    # Un arrêt ou des redémarrages en boucle restent détectés (restart: unless-stopped, bin/monitor.sh).
+    healthcheck:
+      disable: true
     mem_limit: ${WORKER_MEM_LIMIT:-512m}
 
   worker_huge:
@@ -59,6 +63,10 @@ services:
       WORKER_QUEUE: huge
       WORKER_CONCURRENCY: "2"
       NODE_ENV: production
+    # Pas de serveur HTTP dans ce rôle : le HEALTHCHECK de l'image (GET /health) le marquerait « unhealthy ».
+    # Un arrêt ou des redémarrages en boucle restent détectés (restart: unless-stopped, bin/monitor.sh).
+    healthcheck:
+      disable: true
     mem_limit: ${WORKER_HUGE_MEM_LIMIT:-1g}
 
   scheduler:
@@ -67,4 +75,8 @@ services:
     environment:
       ROLE: scheduler
       NODE_ENV: production
+    # Pas de serveur HTTP dans ce rôle : le HEALTHCHECK de l'image (GET /health) le marquerait « unhealthy ».
+    # Un arrêt ou des redémarrages en boucle restent détectés (restart: unless-stopped, bin/monitor.sh).
+    healthcheck:
+      disable: true
     mem_limit: ${SCHEDULER_MEM_LIMIT:-384m}
