@@ -51,10 +51,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 ask() {
-  # ask VAR "question" [défaut] : demande une valeur si VAR est vide (erreur en mode --yes).
+  # ask VAR "question" [défaut] : demande une valeur si VAR est vide ; en mode --yes, prend la valeur
+  # par défaut, ou s'arrête s'il n'y en a pas.
   local -n ref="$1"
   [[ -n "$ref" ]] && return 0
-  [[ "${ASSUME_YES:-0}" == "1" ]] && die "Valeur requise : $2 (option en ligne de commande)."
+  if [[ "${ASSUME_YES:-0}" == "1" ]]; then
+    [[ -n "${3:-}" ]] || die "Valeur requise : $2 (option en ligne de commande)."
+    ref="$3"; return 0
+  fi
   read -r -p "$2${3:+ [$3]} : " ref
   ref="${ref:-${3:-}}"
   [[ -n "$ref" ]] || die "Valeur requise : $2"
@@ -211,7 +215,10 @@ fi
 
 # ---------- 3. Dossiers, réseau, cron ----------
 info "Dossiers de données dans $TOOLSO_DATA_DIR"
-install -d -m 0750 "$TOOLSO_DATA_DIR" "$TOOLSO_DATA_DIR/postgres" "$TOOLSO_DATA_DIR/letsencrypt"
+install -d -m 0750 "$TOOLSO_DATA_DIR" "$TOOLSO_DATA_DIR/letsencrypt"
+# Point de montage de PostgreSQL : l'utilisateur postgres du conteneur (uid 999) doit pouvoir le traverser
+# pour atteindre PGDATA (sous-dossier pgdata, 0700, créé par l'image).
+install -d -m 0755 "$TOOLSO_DATA_DIR/postgres"
 install -d -m 0755 "$TOOLSO_DATA_DIR/files" "$TOOLSO_DATA_DIR/certbot-www"
 install -d -m 0750 "${BACKUP_DIR:-/var/backups/toolso-emailing}"
 chmod 700 "$DEPLOY_DIR/env"
