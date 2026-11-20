@@ -124,8 +124,12 @@ else okline "sauvegarde $(basename "$last")"; fi
 log=/var/log/toolso-emailing-backup.log
 if [[ -n "${BACKUP_RCLONE_REMOTE:-}" && -f "$log" ]]; then
   # Dernier passage de backup.sh dans le journal : copie distante terminée ?
+  # Une sauvegarde en cours (verrou de backup.sh tenu) n'est pas un problème :
+  # cron lance backup.sh et monitor.sh à la même minute (2 h 30).
   last_run="$(tac "$log" | sed -E 's/\x1b\[[0-9;]*m//g' | awk '/==> Sauvegarde dans/ {exit} {print}' || true)"
-  if [[ "$last_run" == *"Copie distante terminée"* ]]; then
+  if [[ -e "$backup_dir/.lock" ]] && ! flock -n "$backup_dir/.lock" true 2>/dev/null; then
+    okline "sauvegarde en cours, copie distante vérifiée au prochain passage"
+  elif [[ "$last_run" == *"Copie distante terminée"* ]]; then
     okline "copie distante de la dernière sauvegarde"
   else
     problem "copie distante de la dernière sauvegarde non confirmée ($log)"
