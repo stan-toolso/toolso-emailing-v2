@@ -605,10 +605,16 @@ bin/compose.sh <uid> run --rm -T --no-deps api node scripts/set-mail-router-cred
   les événements. Chaque instance ignore les événements étiquetés qui ne portent pas `tls_<uid>` (media étiquette
   `uid_…`, `product_…`) : on peut donc ajouter au compte un webhook par instance, `https://<serveur>/api/<uid>/webhooks/sib`
   (événements delivered, opened, click, hard/soft bounce, spam, unsubscribe, blocked), sans toucher à celui de media.
-- **Routeur Toolso (Haraka)** : le greffon du MTA utilisé par media (`router/toolso-app.js` du dépôt media) renvoie ses
-  événements de livraison et de bounce vers **SQS** (`details.sqsEndpoint`) et ignore `details.webhookEndpoint` envoyé par
-  la v2 : tant que le greffon n'appelle pas `webhookEndpoint`, les bounces SMTP d'un envoi v2 par ce routeur ne reviennent
-  pas dans l'instance (les clics, ouvertures et désabonnements, eux, passent par le domaine de suivi).
+- **Routeur Toolso (Haraka)** : le greffon du MTA (`router/toolso-app.js` du dépôt media) publie livraisons et bounces
+  dans **SQS** (`details.sqsEndpoint`, envois media) et, depuis sa version « webhookEndpoint », les poste **aussi** en JSON
+  sur `details.webhookEndpoint` envoyé par la v2 (`MailRouter.config.webhookEndpoint` =
+  `https://<serveur>/api/<uid>/webhooks/toolso`) : en arrière-plan, 3 tentatives, jamais bloquant pour la livraison.
+  `/webhooks/toolso` accepte ce format natif (`type` `emailing_delivered` / `emailing_bounce`, `mail.messageId` = uuid
+  renvoyé par `/sendRawEmail`) en plus du format SES historique, et classe les bounces comme media (soft par défaut ;
+  `5.1.1`/`5.1.2` et « Recipient address rejected » hard ; `5.2.2` boîte pleine ; faux hard bounces Orange en soft).
+  Tant qu'un MTA n'a pas cette version du greffon, les bounces SMTP d'un envoi v2 par ce MTA ne reviennent pas dans
+  l'instance (clics, ouvertures et désabonnements passent par le domaine de suivi). Déploiement et retour arrière :
+  `router/README.md` du dépôt media. Seuls les messages envoyés après le redémarrage d'Haraka remontent au webhook.
 - Joignabilité depuis un serveur Scaleway (ports 25/465/587 sortants bloqués) : l'API Brevo (HTTPS 443) et l'API du MTA
   Haraka (HTTP 5000) le sont ; aucun envoi SMTP ne part du serveur.
 
