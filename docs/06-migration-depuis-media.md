@@ -273,6 +273,8 @@ Mesures (produit pilote, ~7 200 contacts, 6 400 événements d'historique, base 
 | `apps/api/src/migration/mediaStatusSync.js`, `apps/api/scripts/sync-statuses-from-media.js` | synchronisation ; test `test/integration/sync-statuses-from-media.test.js` |
 | `deploy/bin/set-media-source.sh <uid> --media-instance <nom> --product <p> [--ads-secret <s> [--ads-host <h>]] \| --check \| --unset` | source media de l'instance (`MEDIA_DATABASE_URL`, `MEDIA_PRODUCTS`, `ADS_DATABASE_URL` dans son `.env`), § 7 |
 | job `media_campaigns_import` (scheduler, toutes les heures) ; `apps/api/scripts/import-media-campaigns.js [--dry-run]` | import régulier des campagnes DEM (§ 7) ; règles dans `apps/api/src/migration/mediaCampaigns.js`, test `test/integration/media-campaigns-import.test.js` |
+| `deploy/bin/media-compare.sh --media-instance <nom> --migrated <uid>=<p>[@date] --witness <p> [--weeks N] [--format csv\|json\|table] [--revenue ca.csv]` | tableau comparatif hebdomadaire base migrée / témoins (§ 9) |
+| `deploy/bin/sync-statuses-to-media.sh <uid> --since <bascule> [--inscriptions-csv \| --apply --write-secret <s>]` | retour arrière : désabonnements, plaintes, bounces v2 → media (§ 9) ; `apps/api/src/migration/mediaReverseSync.js`, test `test/integration/sync-statuses-to-media.test.js` |
 
 ## 7. Transition : import régulier des campagnes (DEM) et source media de l'instance
 
@@ -409,3 +411,110 @@ curl -s -H "apikey: <clé>" "https://<serveur>/api/<uid>/v1/<produit>/contacts/c
 ```
 
 Suivi : journal de l'api v2 (`MediaCompat`), journal media (`relayToV2` : appels relayés, replis locaux).
+
+## 9. Suivi d'un produit basculé et retour arrière
+
+Pendant la période d'observation (3 à 4 semaines), un produit basculé est comparé chaque semaine à des produits **témoins**
+restés sur media, et peut revenir sur media tant qu'il n'a pas été validé. Le produit n'est jamais supprimé de media pendant
+cette période.
+
+### Tableau comparatif hebdomadaire (`media-compare.sh`)
+
+```bash
+sudo bin/media-compare.sh --media-instance <instance media> \
+  --migrated <uid>=<produit>[@AAAA-MM-JJ] [--migrated …] --witness <produit témoin> [--witness …] \
+  [--weeks 8] [--format csv|json|table] [--revenue ca.csv] [--output fichier]
+```
+
+Lecture seule des deux côtés (transaction en lecture seule imposée), quelques secondes. Une ligne par produit et par
+semaine (lundi → dimanche, fuseau de la plateforme) :
+
+| Colonne | Contenu |
+|---|---|
+| `role`, `instance`, `source` | `migrated` / `witness` ; instance v2 ; d'où viennent les chiffres : `media` (témoins, et produit migré avant sa bascule), `v2` (après), `media+v2` (semaine de la bascule, additionnés) |
+| `sends`, `delivered`, `opens`, `clicks` | envois (hors BAT), délivrés, ouvertures et clics **uniques** par envoi |
+| `unsubs`, `complaints`, `hard_bounces`, `soft_bounces` | désabonnements, plaintes, hard bounces (+ contact bounces) et soft bounces rattachés à ces envois |
+| `open_rate`, `click_rate`, `click_to_open`, `unsub_rate`, `complaint_rate`, `hard_bounce_rate` | en % des envois (clics / ouvertures pour `click_to_open`) |
+| `revenue`, `revenue_per_1000` | CA de la semaine fourni par le client (`--revenue`, CSV `produit,AAAA-MM-JJ (lundi),montant`), CA pour 1 000 envois ; vides sans fichier |
+
+Les chiffres sont comptés **par semaine d'envoi** (cohorte) et à partir des mêmes drapeaux des deux côtés : table `email`
+de media, table `ContactContent` de la v2 (un envoi par ligne, mêmes drapeaux ; la reprise n'y écrit rien, donc pas de
+double compte). Date de bascule : `@AAAA-MM-JJ`, ou par défaut le premier envoi v2 de l'instance (les envois v2 antérieurs,
+tests compris, sont exclus quand la date est donnée). Un produit migré sans envoi v2 est lu entièrement dans media.
+
+### Synchronisation inverse v2 → media (`sync-statuses-to-media.sh`)
+
+Pendant que la v2 sert le produit, les désabonnements, plaintes et bounces n'arrivent plus dans media. Avant de rendre le
+produit à media, on les y reporte, comme media les aurait enregistrés lui-même :
+
+| Événement v2 (depuis la bascule) | Dans media |
+|---|---|
+| `unsub` | `contact.email_status = unsub`, `contact_history` `emailing_unsub` |
+| `complaint` | `email_status = complaint`, `emailing_complaint` |
+| `hard_bounce`, `contact_bounce` | `email_status = hard_bounce`, `emailing_hard_bounce` / `emailing_contact_bounce` |
+
+et, pour chaque contact modifié, suppression de ses envois programmés non partis (`email.done = false`), comme media.
+
+- Seuls les événements **nés dans la v2** comptent : date ≥ `--since` (bascule), ni rejoués depuis media par la
+  synchronisation media → v2 (`details.media`), ni repris (`details.origin = toolso-media`).
+- Désabonnement antérieur à la dernière inscription v2 du contact (réinscription) : ignoré, comme dans le statut v2.
+- Statut media jamais affaibli (`active`/`new`/`archived` < `unsub` < `hard_bounce` < `complaint` < `blacklisted`) : un contact
+  déjà au moins aussi bloqué n'est pas touché ; le script est relançable sans doublon. Rapprochement par e-mail normalisé.
+- `contact_history.details` = `{ origin: "toolso-emailing-v2", instance, v2EventId, previousStatus }` : les reports se
+  retrouvent (et s'annulent au besoin) par `details->>'origin'`.
+- Contacts **inscrits ou réinscrits dans la v2 depuis la bascule** : comptés dans le résumé (`inscriptions` : absents de media,
+  bloqués dans media) et exportés par `--inscriptions-csv`, pour être réimportés par l'API d'inscription de media. Le script
+  ne crée aucun contact dans media.
+
+```bash
+sudo bin/sync-statuses-to-media.sh <uid> --since <AAAA-MM-JJ[THH:MM]>               # simulation (défaut), lecture seule
+sudo bin/sync-statuses-to-media.sh <uid> --since <date> --inscriptions-csv          # CSV (mode 600) dans BACKUP_DIR/media-migration/
+sudo bin/sync-statuses-to-media.sh <uid> --since <date> --apply --write-secret <secret du compte limité>
+```
+
+Source de lecture : `MEDIA_DATABASE_URL` et `MEDIA_PRODUCTS` du `.env` de l'instance (§ 7), ou `--media-instance` /
+`--product`. **Écriture** : jamais avec la source de lecture ni avec le compte administrateur `postgres` (refusé) ; il faut
+un compte media limité, rangé dans un secret AWS (`host`, `port`, `database`, `username`, `password`) :
+
+```sql
+-- sur la base media, par un administrateur, avec l'accord du responsable de la plateforme
+CREATE ROLE emailing_v2_rollback LOGIN PASSWORD '<généré, rangé dans le secret>';
+GRANT CONNECT ON DATABASE <base> TO emailing_v2_rollback;
+GRANT USAGE ON SCHEMA public TO emailing_v2_rollback;
+GRANT SELECT ON product, contact, contact_history, email TO emailing_v2_rollback;
+GRANT UPDATE (email_status, updated_at) ON contact TO emailing_v2_rollback;
+GRANT INSERT ON contact_history TO emailing_v2_rollback;
+GRANT USAGE ON SEQUENCE contact_history_id_seq TO emailing_v2_rollback;
+GRANT DELETE ON email TO emailing_v2_rollback;
+-- après le retour arrière : DROP ROLE emailing_v2_rollback; (et suppression du secret)
+```
+
+Le code est inclus dans l'image `api` ; sur une image plus ancienne, le script monte les fichiers du dépôt en lecture seule.
+
+### Procédure de retour arrière (un produit)
+
+À décider avec le client ; de préférence juste après un créneau, pour ne pas couper un envoi en cours. Au jour J de la
+bascule, avoir noté la liste des créneaux media actifs du produit
+(`SELECT id, name FROM email_slot WHERE product_id = <id> AND is_active`), qu'on réactive à l'identique.
+
+1. **Arrêter les envois v2** : dans l'interface de l'instance, désactiver toutes les planifications (ou
+   `bin/psql.sh <uid> -c 'UPDATE "Schedule" SET "isActive" = false WHERE "isActive"'` en notant les ids) ; vérifier qu'aucun
+   envoi n'est en cours (`bin/compose.sh <uid> run --rm --no-deps api node scripts/queue-status.js`).
+2. **Rendre l'API à media** : retirer le relais du produit dans media
+   (`DELETE FROM settings WHERE name = 'v2RelayUrl' AND product_id = <id>` ; § 8). Les inscriptions et
+   désabonnements arrivent de nouveau dans media.
+3. **Arrêter les jobs de transition** de l'instance : `MEDIA_STATUS_SYNC=0` et
+   `JOBS_DISABLED=media_campaigns_import,sync_media_statuses` dans son `.env`, puis `bin/compose.sh <uid> up -d scheduler`.
+4. **Simulation** de la synchronisation inverse : `sync-statuses-to-media.sh <uid> --since <bascule>` ; relire les volumes
+   (`byStatus`, `samples`, `alreadyBlocked`, `inscriptions`).
+5. **Report réel** : `--apply --write-secret <compte limité>`, puis relancer la simulation : `toUpdate` doit valoir 0.
+6. **Inscriptions v2** : `--inscriptions-csv`, puis réimport dans media par son API d'inscription (même source, mêmes
+   champs) ; contrôle : `inscriptions.missingInMedia` à 0 à la simulation suivante.
+7. **Réactiver les créneaux media** relevés à J (`UPDATE email_slot SET is_active = true WHERE id IN (…)`, ou interface
+   media), puis vérifier le premier envoi (volumes comparables à la semaine précédant la bascule, `media-compare.sh`).
+8. Conserver l'instance v2 telle quelle (analyse) ; la supprimer plus tard avec `bin/remove-database.sh <uid>`. Retirer le
+   compte d'écriture limité.
+
+Contrôles après retour arrière (SQL media) : pas de contact du produit `active`/`new` parmi les désabonnés v2 (relancer la
+simulation : `toUpdate = 0`) ; `SELECT count(*) FROM contact_history WHERE details->>'origin' = 'toolso-emailing-v2'`
+égal à `updated` du report.
