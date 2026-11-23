@@ -63,6 +63,9 @@ contenus sont créés inactifs, sans planification, sans partenaire v2 ni revenu
 
 ```bash
 sudo bin/migrate-from-media.sh <uid> --media-instance <nom> --product <produit> --contents --ads-secret toolso-ads --dry-run
+# hors AWS : le secret pointe vers le proxy RDS (VPC seulement) → lire la base ads sur son cluster
+sudo bin/migrate-from-media.sh <uid> --media-instance <nom> --product <produit> --contents --ads-secret toolso-ads-readonly \
+  --ads-host <cluster de la base ads> --dry-run
 sudo bin/migrate-from-media.sh <uid> --media-instance <nom> --product <produit> --contents --ads-secret toolso-ads
 sudo bin/migrate-from-media.sh <uid> --media-instance <nom> --product <produit> --contents --articles-only --since-days 180
 ```
@@ -205,6 +208,6 @@ pas repris. Ordre conseillé :
 | `… --product <p>[,<p>…] [--dump] [--since-days N] [--skip-blacklist] [--skip-messages] [--batch-size N] [--yes]` | reprise |
 | `apps/api/scripts/migrate-from-media.js` (dans le conteneur `api`, `MEDIA_DATABASE_URL` dans l'environnement) | conversion proprement dite |
 | `apps/api/src/migration/mediaDatabase.js` | règles de correspondance ; test `test/integration/migrate-from-media.test.js` (schéma media de test : `test/fixtures/media-schema.sql`) |
-| `… --product <p> --contents [--articles-only \| --dems-only] [--ads-secret toolso-ads \| --ads-url <url>] [--all-articles] [--include-disabled] [--since-days N] [--dry-run]` | articles et DEM → contenus v2 inactifs |
+| `… --product <p> --contents [--articles-only \| --dems-only] [--ads-secret toolso-ads [--ads-host <cluster>] \| --ads-url <url>] [--all-articles] [--include-disabled] [--since-days N] [--dry-run]` | articles et DEM → contenus v2 inactifs |
 | `apps/api/scripts/migrate-contents-from-media.js` (`MEDIA_DATABASE_URL`, `ADS_DATABASE_URL`) | conversion des contenus |
 | `apps/api/src/migration/mediaContents.js` | gabarit d'article, rendu partiel Mustache, règles DEM ; test `test/integration/migrate-contents-from-media.test.js` (schéma ads de test : `test/fixtures/ads-schema.sql`) |
