@@ -25,7 +25,7 @@
 #   secret toolso-ads(-readonly) pointe vers le proxy RDS, joignable seulement depuis le VPC ; hors AWS, lire la base
 #   directement sur son cluster (ex. --ads-host toolso-media-2.cluster-….eu-west-3.rds.amazonaws.com).
 # Options contenus : --all-articles (aussi brouillons / exclus de l'emailing), --include-disabled (publicités désactivées),
-#   --since-days N (articles publiés depuis N jours).
+#   --since-days N (articles publiés depuis N jours), --update-dems (DEM déjà reprises recalculées : ex. liens de désabonnement).
 # Synchronisation (--sync-statuses) : source et produits par défaut lus dans le .env de l'instance (MEDIA_DATABASE_URL,
 #   MEDIA_PRODUCTS, écrits par bin/set-media-source.sh) ; --email-flags-days N (envois media relus pour leurs drapeaux,
 #   défaut 60), --no-recalculate (laisser le recalcul des statuts au job scan_contact_to_update_status). Job planifié
@@ -45,7 +45,7 @@ PG_IMAGE="${PG_IMAGE:-postgres:17}"
 MEDIA_AWS_REGION="${MEDIA_AWS_REGION:-eu-west-3}"
 
 uid="" products="" source_url="${MEDIA_DATABASE_URL:-}" media_instance="" since_days="" batch_size="" ssl_mode="no-verify"
-ads_url="${ADS_DATABASE_URL:-}" ads_secret="" ads_host_override="" contents=0 articles_only=0 dems_only=0 all_articles=0 include_disabled=0
+ads_url="${ADS_DATABASE_URL:-}" ads_secret="" ads_host_override="" contents=0 articles_only=0 dems_only=0 all_articles=0 include_disabled=0 update_dems=0
 mode="migrate" do_dump=0 skip_blacklist=0 skip_messages=0
 sync_statuses=0 sync_full=0 sync_no_new=0 sync_no_recalc=0 sync_cursor=0 email_flags_days=""
 while [[ $# -gt 0 ]]; do
@@ -70,6 +70,7 @@ while [[ $# -gt 0 ]]; do
     --dems-only) dems_only=1; shift ;;
     --all-articles) all_articles=1; shift ;;
     --include-disabled) include_disabled=1; shift ;;
+    --update-dems) update_dems=1; shift ;;
     --list-products) mode="list"; shift ;;
     --inventory) mode="inventory"; shift ;;
     --dry-run) mode="dry-run"; shift ;;
@@ -215,6 +216,7 @@ if [[ "$contents" == "1" ]]; then
   [[ "$dems_only" == "1" ]] && cargs+=(--dems-only)
   [[ "$all_articles" == "1" ]] && cargs+=(--all-articles)
   [[ "$include_disabled" == "1" ]] && cargs+=(--include-disabled)
+  [[ "$update_dems" == "1" ]] && cargs+=(--update-dems)
   [[ -n "$since_days" ]] && cargs+=(--since-days "$since_days")
   if [[ "$mode" == "dry-run" ]]; then
     run_node_contents "${cargs[@]}" --dry-run

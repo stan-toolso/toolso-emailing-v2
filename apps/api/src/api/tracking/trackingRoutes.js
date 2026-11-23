@@ -215,7 +215,12 @@ router.get('/tko/v1/:secretKey/:encryptedObj', async (req, res) => {
   res.status(404).send('Not found');
 });
 
-/** Page de désabonnement (GET : confirmation, POST ou ?oneclick : désabonnement effectif). */
+/**
+ * Page de désabonnement (GET : confirmation ; POST ou ?oneclick : désabonnement effectif).
+ * Tout POST désabonne : formulaire de la page (`unsub=1`) et désabonnement en un clic des messageries (RFC 8058 :
+ * POST sur l'URL de l'en-tête List-Unsubscribe avec le corps `List-Unsubscribe=One-Click`, en-tête
+ * List-Unsubscribe-Post envoyé par RouterUtils), quel que soit l'encodage du corps.
+ */
 const unsub = async (req, res) => {
   const secretKey = req.params.secretKey;
   let decryptedObject = null;
@@ -227,9 +232,10 @@ const unsub = async (req, res) => {
     return;
   }
   log.debug('Unsub request for ' + JSON.stringify(decryptedObject));
-  const oneclick = req.query && req.query.oneclick;
+  const listUnsubscribePost = req.method === 'POST' && !(req.body && req.body.unsub);
+  const oneclick = (req.query && req.query.oneclick) || (listUnsubscribePost ? 'List-Unsubscribe-Post' : undefined);
 
-  if (oneclick || (req.body && req.body.unsub)) {
+  if (oneclick || req.method === 'POST') {
     decryptedObject.success = true;
     let messageId = decryptedObject.messageId ?? null;
     if (!messageId && decryptedObject.mirrorId) {

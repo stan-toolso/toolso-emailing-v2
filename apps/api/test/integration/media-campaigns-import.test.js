@@ -2,7 +2,8 @@
  * Import régulier des campagnes media (base ads → Content v2 actifs), sur PostgreSQL embarqué : règles de disponibilité
  * de media (statuts, annonceur, période, dates, plafond quotidien, produit, emplacement), utm résolus comme media,
  * paramètre de clic du partenaire, filtres d'audience et jours traduits, mises à jour, désactivations, contenus manuels
- * ou suspendus, rattachement aux planifications, simulation, job sans configuration.
+ * ou suspendus, rattachement aux planifications, simulation, job sans configuration, liens de désabonnement media du pied
+ * de page DEM remplacés par {{{unsubLink}}} (contenus existants mis à jour au passage suivant).
  */
 const path = require('path');
 const fs = require('fs');
@@ -253,4 +254,26 @@ test('mêmes campagnes pour un autre site, utm_source du site', async () => {
   expect(stats.samples.find((s) => s.adId === 2)).toMatchObject({ active: true });
   expect(stats.samples.find((s) => s.adId === 1).utms).toEqual(['utm_campaign=1-1-1', 'utm_source=site2', 'utm_medium=dem']);
   expect(stats.ads.read).toBe(8);
+});
+
+test('lien de désabonnement media du pied de page DEM : remplacé par {{{unsubLink}}}, contenus existants mis à jour', async () => {
+  const sequelize = sequelizeModule.get();
+  const { Content, ContentVersion } = sequelize.models;
+  await source.query(
+    `UPDATE email_content_version SET settings = jsonb_set(settings, '{footer}', to_jsonb('<center><a href="https://unsubscribe.site1.example.com/?email={{contact.email}}" toolso:no-track toolso:unsub>Se désabonner</a></center>'::text)) WHERE email_content_id = 1`
+  );
+  const stats = await campaigns.importMediaCampaigns({ sequelize, source, ads, products: ['site1'], now: NOW });
+  expect(stats.contents).toMatchObject({ created: 0, updated: 2 });
+  expect(stats.unsubLinksReplaced).toBe(2);
+  const rows = await sequelize.query(
+    `SELECT c.name, v.html FROM "Content" c JOIN "ContentVersion" v ON v.id = c."defaultVersionId" WHERE c.config->'media'->>'type' = 'dem' AND NOT coalesce((c.config->'media'->>'manual')::boolean, false) ORDER BY c.id`,
+    { type: sequelize.QueryTypes.SELECT }
+  );
+  expect(rows.length).toBe(3);
+  for (const row of rows.filter((r) => r.name !== 'Privée externe – A6')) {
+    expect(row.html).toContain('<center><a href="{{{unsubLink}}}" toolso:no-track toolso:unsub>Se désabonner</a></center>');
+    expect(row.html).not.toContain('unsubscribe.site1');
+  }
+  const again = await campaigns.importMediaCampaigns({ sequelize, source, ads, products: ['site1'], now: NOW });
+  expect(again.contents.updated).toBe(0);
 });
