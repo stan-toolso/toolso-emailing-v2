@@ -206,8 +206,89 @@ const handleSesEvent = async (event) => {
   return 'OK';
 };
 
+/**
+ * Événements natifs du greffon Haraka des routeurs Toolso (router/toolso-app.js de toolso-media), postés tels quels sur
+ * details.webhookEndpoint (en plus de SQS côté media) :
+ *   { type: 'emailing_delivered', ts, mail: { ts, from, to, messageId } }
+ *   { type: 'emailing_bounce', ts, mail: {...}, bounce: { error, message, details: [rcpt_to avec dsn_status, dsn_smtp_response, ...] } }
+ * mail.messageId = uuid Haraka renvoyé par /sendRawEmail (« Message Queued (<uuid>) »), enregistré comme messageId à l'envoi.
+ * Le classement des bounces reprend celui de media (backend/services/events/manageEmailingEvent.js) pour que les deux
+ * bases restent comparables pendant la transition : par défaut soft, 5.1.1/5.1.2 et « Recipient address rejected » hard,
+ * 5.2.2 boîte pleine (contact_bounce), faux hard bounces Orange/La Poste en soft.
+ * Renvoie le payload insert_contact_event, ou null si l'événement n'est pas exploitable.
+ */
+const ORANGE_SOFT_CODES = ['OFR_506', 'OFR005_405'];
+const ORANGE_SOFT_DSN = ['5.2.0', '5.1.0'];
+const includesAny = (str, values) => typeof str === 'string' && values.some((v) => str.indexOf(v) >= 0);
+
+const classifyHarakaBounce = (bounce) => {
+  const rcpt = bounce && Array.isArray(bounce.details) ? bounce.details[0] : null;
+  const rcptMessage = (rcpt && rcpt.message) || null;
+  const dsn = (rcpt && rcpt.dsn_status) || null;
+  const dsnResponse = (rcpt && rcpt.dsn_smtp_response) || null;
+  const message = bounce && typeof bounce.message === 'string' ? bounce.message : null;
+
+  // faux hard bounces (tous les MX en échec, Orange/La Poste) : soft
+  if (includesAny(rcptMessage, ['Too many failures (Tried all MXs)']) || includesAny(message, ['Too many failures (Tried all MXs)'])) {
+    return EventType.soft_bounce;
+  }
+  if (ORANGE_SOFT_DSN.includes(dsn) && (includesAny(rcptMessage, ORANGE_SOFT_CODES) || includesAny(dsnResponse, ORANGE_SOFT_CODES))) {
+    return EventType.soft_bounce;
+  }
+  if (dsn) {
+    switch (dsn) {
+      case '5.1.1':
+      case '5.1.2':
+        return EventType.hard_bounce;
+      case '5.2.2':
+        return EventType.contact_bounce;
+      default:
+        return EventType.soft_bounce;
+    }
+  }
+  if (includesAny(message, ['Recipient address rejected']) || includesAny(rcptMessage, ['Recipient address rejected'])) {
+    return EventType.hard_bounce;
+  }
+  return EventType.soft_bounce;
+};
+
+const harakaEventToPayload = (event) => {
+  if (!event || !event.mail || !event.mail.to || !event.mail.messageId) {
+    return null;
+  }
+  const ts = event.ts || event.mail.ts || Date.now();
+  if (event.type === 'emailing_delivered') {
+    return { email: event.mail.to, eventType: EventType.delivered, ts, messageId: event.mail.messageId, details: { ts: new Date(ts) } };
+  }
+  if (event.type === 'emailing_bounce') {
+    const eventType = classifyHarakaBounce(event.bounce);
+    return {
+      email: event.mail.to,
+      eventType,
+      ts,
+      messageId: event.mail.messageId,
+      details: { ts: new Date(ts), log: event.bounce, dsnStatus: event.bounce?.details?.[0]?.dsn_status || null }
+    };
+  }
+  return null;
+};
+
+const handleHarakaEvent = async (event) => {
+  const payload = harakaEventToPayload(event);
+  if (!payload) {
+    log.warn(`Toolso router event ${event.type} not supported or incomplete`);
+    return 'OK';
+  }
+  log.debug(`New Action generated : ${JSON.stringify(payload)}`);
+  await (await getActionService()).newAction(ActionType.insert_contact_event, payload);
+  return 'OK';
+};
+
 const handleToolsoEvent = async (event) => {
   event = JSON.parse(event.body);
+  if (event && typeof event.type === 'string' && event.type.indexOf('emailing_') === 0) {
+    return await handleHarakaEvent(event);
+  }
   if (event && event.notificationType && event.notificationType == 'Received') {
     return await handleMessage(event);
   }
@@ -724,6 +805,8 @@ module.exports = {
   handleWebhook,
   handleSesEvent,
   handleToolsoEvent,
+  harakaEventToPayload,
+  classifyHarakaBounce,
   handleSibEvent,
   isSibEventForOtherBase,
   untrackLink
