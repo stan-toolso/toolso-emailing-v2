@@ -1,7 +1,8 @@
 /**
  * Reprise des contenus toolso-media (articles de la base media, DEM de la base ads) en Content v2, sur PostgreSQL embarqué :
  * rendu Mustache partiel (renderKeeping), gabarit d'article, variables de contenu, DEM html et dem_template, filtres
- * (produit, désactivés, non publiés), simulation, idempotence, compilation par ContentService.
+ * (produit, désactivés, non publiés), simulation, idempotence, compilation par ContentService, liens de désabonnement
+ * media remplacés par le lien v2 ({{{unsubLink}}}) et mise à jour des DEM déjà reprises (updateDems).
  */
 const path = require('path');
 const fs = require('fs');
@@ -104,6 +105,64 @@ test('renderKeeping : résout les variables fournies et conserve les autres bali
   expect(media.resume('<p>Un <b>texte</b> &amp; des mots qui dépassent la taille.</p>', 12)).toBe('Un texte & des [..]');
 });
 
+test('liens de désabonnement media : repères et remplacement par {{{unsubLink}}}', () => {
+  const m = media.mediaUnsubMatchers({
+    unsubUrl: 'https://news.site.example/desinscription',
+    siteUrl: 'https://www.site.example',
+    redirection: 'https://news.site.example',
+    mainDomain: 'site.example',
+    slugs: ['se-desabonner']
+  });
+  expect(m).toEqual({ prefixes: ['news.site.example/desinscription'], domains: ['site.example', 'news.site.example'], slugs: ['desinscription', 'se-desabonner'] });
+  const yes = [
+    'https://unsubscribe.site.example/?email={{contact.email}}',
+    'http://unsubscribe.site.example',
+    'https://news.site.example/desinscription?kid=1&el=x',
+    'https://news.site.example/desinscription/',
+    'https://www.site.example/desinscription',
+    'https://site.example/se-desabonner?e={{contact.email}}',
+    '//news.site.example/desinscription'
+  ];
+  const no = [
+    'https://optout.partenaire.example/?email={{contact.email}}',
+    'https://unsubscribe.autre.example/?email=x',
+    'https://site.example/desinscription-newsletter-papier',
+    'https://site.example/article/desinscription',
+    'https://autre.example/desinscription',
+    'https://site.example.evil.example/desinscription',
+    '{{{unsubLink}}}',
+    'mailto:desinscription@site.example'
+  ];
+  for (const url of yes) {
+    expect([url, media.isMediaUnsubUrl(url, m)]).toEqual([url, true]);
+  }
+  for (const url of no) {
+    expect([url, media.isMediaUnsubUrl(url, m)]).toEqual([url, false]);
+  }
+  expect(media.isMediaUnsubUrl('https://unsubscribe.site.example/', null)).toBe(false);
+
+  const html =
+    '<p><a style="color:#333" href="https://unsubscribe.site.example/?email={{contact.email}}" toolso:no-track toolso:unsub><b>Se désabonner</b></a>' +
+    " <a href='https://news.site.example/desinscription'>désinscription</a>" +
+    ' <A HREF="https://pages.partenaire.example/stop" toolso:unsub>stop</A>' +
+    ' <a href="{{{unsubLink}}}" toolso:unsub>déjà v2</a>' +
+    ' <a href="https://optout.partenaire.example/?email={{contact.email}}">pixel</a>' +
+    ' <a href="https://site.example/offre" toolso:unsubscribe-like>offre</a></p>';
+  const out = media.replaceMediaUnsubLinks(html, m);
+  expect(out.replaced).toBe(3);
+  expect(out.html).toBe(
+    '<p><a style="color:#333" href="{{{unsubLink}}}" toolso:no-track toolso:unsub><b>Se désabonner</b></a>' +
+      " <a href='{{{unsubLink}}}'>désinscription</a>" +
+      ' <A HREF="{{{unsubLink}}}" toolso:unsub>stop</A>' +
+      ' <a href="{{{unsubLink}}}" toolso:unsub>déjà v2</a>' +
+      ' <a href="https://optout.partenaire.example/?email={{contact.email}}">pixel</a>' +
+      ' <a href="https://site.example/offre" toolso:unsubscribe-like>offre</a></p>'
+  );
+  // sans repères : seuls les liens marqués toolso:unsub
+  expect(media.replaceMediaUnsubLinks(html).replaced).toBe(2);
+  expect(media.adaptToV2('<a href="https://unsubscribe.site.example/?e=1">x</a>', { unsub: m })).toEqual({ html: '<a href="{{{unsubLink}}}">x</a>', removed: { adShortcodes: 0, tsclid: 0, fieldsRenamed: 0, unsubLinks: 1 } });
+});
+
 test('simulation puis reprise des articles et des DEM du produit guide', async () => {
   const sequelize = sequelizeModule.get();
   const { Content, ContentVersion, ContentTemplate } = sequelize.models;
@@ -181,8 +240,32 @@ test('simulation puis reprise des articles et des DEM du produit guide', async (
   const again = await media.migrateContentsFromMedia({ sequelize, source, ads, products: ['guide'] });
   expect(again.templates).toEqual({ created: 0, reused: 1 });
   expect(again.articles).toMatchObject({ created: 0, existing: 2 });
-  expect(again.dems).toMatchObject({ created: 0, existing: 2 });
+  expect(again.dems).toMatchObject({ created: 0, existing: 2, updated: 0 });
   expect(await Content.count()).toBe(4);
+
+  // liens de désabonnement media dans le pied de page DEM du produit, la publicité et le gabarit dem_template :
+  // les DEM déjà reprises sont mises à jour avec updateDems, le lien v2 est rendu par ContentService
+  const footer =
+    '<div id="ftr"><a href="https://unsubscribe.guide.example.com/?email={{contact.email}}" toolso:no-track toolso:unsub>Se désabonner</a> <a href="https://optout.partenaire.example/?email={{contact.email}}">pixel</a></div>';
+  await source.query(`UPDATE email_content_version SET settings = jsonb_set(settings, '{footer}', to_jsonb($1::text)) WHERE email_content_id = 1`, [footer]);
+  await source.query(`UPDATE email_content_version SET body = replace(body, '</body>', '<a href="https://news.guide.example.com/desinscription?kid=1">stop</a></body>') WHERE email_content_id = 2`);
+  await source.query(`INSERT INTO settings (name, value, product_id) VALUES ('emailingUnsubUrl', 'https://news.guide.example.com/desinscription', 1)`);
+  await source.query(`INSERT INTO page (product_id, slug, template, status) VALUES (1, 'stop-mails', 'unsub', 'published')`);
+  await ads.query(`UPDATE ad SET content = jsonb_set(content, '{html}', to_jsonb(replace(content->>'html', '</p>', ' <a href="https://guide.example.com/stop-mails">x</a></p>'))) WHERE id = 1`);
+  const manual = await Content.findOne({ where: { name: 'Campagne A – DEM gabarit' } });
+  const updated = await media.migrateContentsFromMedia({ sequelize, source, ads, products: ['guide'], articles: false, updateDems: true });
+  expect(updated.dems).toMatchObject({ created: 0, existing: 2, updated: 2, unsubLinksReplaced: 3 });
+  const fixedHtml = (await ContentVersion.findByPk(demHtml.defaultVersionId)).html;
+  expect(fixedHtml).toContain('<a href="{{{unsubLink}}}">x</a>');
+  expect(fixedHtml).toContain('<a href="{{{unsubLink}}}" toolso:no-track toolso:unsub>Se désabonner</a> <a href="https://optout.partenaire.example/?email={{contact.email}}">pixel</a>');
+  expect((await ContentVersion.findByPk(manual.defaultVersionId)).html).toContain('<a href="{{{unsubLink}}}">stop</a></body>');
+  const fixed = await new ContentService().compileContentVersion(demHtml, await ContentVersion.findByPk(demHtml.defaultVersionId), { unsubLink: 'https://lk.guide.example.com/unsub/fr/k/o', contact: { email: 'a@b.c', firstname: 'A' } }, true);
+  expect(fixed.html.match(/href="https:\/\/lk\.guide\.example\.com\/unsub\/fr\/k\/o"/g)).toHaveLength(2);
+  expect(fixed.html).not.toMatch(/unsubscribe\.guide|news\.guide\.example\.com\/desinscription|stop-mails/);
+  // contenu repris à la main : plus touché ; relance sans changement : rien n'est réécrit
+  await manual.update({ config: { ...manual.config, media: { ...manual.config.media, manual: true } } });
+  const stable = await media.migrateContentsFromMedia({ sequelize, source, ads, products: ['guide'], articles: false, updateDems: true });
+  expect(stable.dems).toMatchObject({ updated: 0, manual: 1, existing: 2 });
 
   // articles seulement, tous statuts
   const all = await media.migrateContentsFromMedia({ sequelize, source, products: ['guide'], allArticles: true });

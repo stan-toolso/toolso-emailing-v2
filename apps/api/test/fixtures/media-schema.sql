@@ -314,3 +314,15 @@ CREATE TABLE category_article (
     created_at timestamp with time zone,
     updated_at timestamp with time zone
 );
+
+CREATE TABLE page (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    created_at timestamp with time zone,
+    updated_at timestamp with time zone,
+    title character varying(255),
+    content text,
+    product_id integer,
+    status character varying(255) DEFAULT 'pending'::character varying,
+    template character varying(255),
+    slug character varying(255)
+);

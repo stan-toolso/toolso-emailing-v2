@@ -27,6 +27,9 @@ const log = require('../util/log').getLogger('MediaCampaigns');
  *
  * Liens et utm : le HTML est converti comme le fait media à l'envoi (`convertDem`) ; les utm écrits dans les publicités
  * (`utm_campaign={{campaign.id}}-{{ad_group.id}}-{{ad.id}}&utm_source={{product.uid}}`) sont résolus avec les mêmes valeurs.
+ * Les liens de désabonnement media (pied de page DEM, `emailingUnsubUrl`, `unsubscribe.<site>`, liens `toolso:unsub`)
+ * deviennent `{{{unsubLink}}}` : le désabonnement se fait dans la v2 (`unsubLinksReplaced` : liens remplacés dans les
+ * contenus créés ou mis à jour par ce passage).
  *
  * Planifications : sans `schedules`, les contenus ne sont rattachés à aucune planification (mode « sans envoi » d'avant la
  * bascule). Avec une liste d'identifiants de `Schedule`, chaque contenu importé y est rattaché (ContentSchedule).
@@ -227,6 +230,7 @@ const newStats = () => ({
   unavailable: {},
   unsupported: {},
   tsClick: { applied: 0, skipped: 0 },
+  unsubLinksReplaced: 0,
   schedules: { ids: [], linked: 0 },
   samples: []
 });
@@ -366,6 +370,7 @@ const importMediaCampaigns = async (options) => {
         content.defaultVersionId = contentVersion.id;
         await content.save({ transaction });
         stats.contents.created++;
+        stats.unsubLinksReplaced += converted.unsubLinksReplaced;
         managedIds.push(content.id);
         if (stats.samples.length < (options.samples ?? 5)) {
           stats.samples.push({ contentId: content.id, adId: ad.id, name, active: available, utms: extractUtms(version.html) });
@@ -394,6 +399,7 @@ const importMediaCampaigns = async (options) => {
         content.category = category;
         content.endDate = distribution.endDate;
         stats.contents.updated++;
+        stats.unsubLinksReplaced += converted.unsubLinksReplaced;
         changed = true;
       }
       const nextConfig = { ...config, media: { ...(config.media ?? {}), ...mediaConfig }, filters };

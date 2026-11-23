@@ -58,7 +58,27 @@ conservés tels quels (même vocabulaire côté v2) et rendus à l'envoi. `conta
 `{{dateFormat}}` et `{{contact.age}}` n'existent pas en v2 (balises listées dans `keptTags` du résumé, à corriger dans l'UI) ;
 une section inversée `{{^x}}` sur une variable conservée est rendue vide (`droppedInverted`).
 
-Idempotent : `Content.config.media = { type: article | dem, id, product }` ; un contenu déjà repris est ignoré. Les
+**Liens de désabonnement** : après la bascule, tout lien de désabonnement d'un mail v2 doit désabonner **dans la v2**.
+Les liens de désabonnement media écrits en dur (pied de page DEM du produit, publicité, gabarit `dem_template`) sont
+remplacés à la conversion par `{{{unsubLink}}}` (`replaceMediaUnsubLinks`, compteur `unsubLinksReplaced`) :
+
+| Lien reconnu | Exemple |
+|---|---|
+| lien marqué `toolso:unsub` (media : le clic suivi enregistre le désabonnement puis redirige) | `<a href="…" toolso:no-track toolso:unsub>` |
+| `settings.emailingUnsubUrl` du produit et ce qui commence par elle (media y ajoute `?kid=…&el=…`) | `https://news.<site>/desinscription` |
+| domaine `unsubscribe.<domaine du produit>` (page de désabonnement du site) | `https://unsubscribe.<site>/?email={{contact.email}}` |
+| `<domaine du produit ou sous-domaine>/<slug>` des pages media de gabarit `unsub` du produit (défaut `desinscription`) | `https://news.<site>/desinscription` |
+
+Domaines du produit : `product.main_domain`, hôtes de `siteUrl`, `emailingRedirectionLink`, `emailingUnsubUrl` (sans
+`www.`, plus leur domaine parent pour les deux derniers). Les attributs sont gardés : `toolso:unsub` a le même sens en v2
+(clic suivi = désabonnement immédiat, puis page `/unsub` de l'instance). Les variables media `{{unsubLink}}` /
+`{{pixelConsentLink}}` portent le même nom en v2 et sont conservées. Ne sont **pas** touchés : les liens d'opposition au
+pixel de suivi hébergés par le client sur un autre domaine (ex. outil d'opt-out du client), à revoir à la main si besoin.
+
+Idempotent : `Content.config.media = { type: article | dem, id, product }` ; un contenu déjà repris est ignoré, sauf les
+DEM avec `--update-dems` (version par défaut recalculée : HTML, objet, préentête, expéditeur ; contenus
+`config.media.manual` exclus) — à utiliser après une correction de la conversion. Les DEM tenues par l'import des campagnes
+(§ 7) sont mises à jour d'elles-mêmes au passage suivant (empreinte changée). Les
 contenus sont créés inactifs, sans planification, sans partenaire v2 ni revenus.
 
 ```bash
@@ -155,7 +175,18 @@ pas repris. Ordre conseillé :
    `bin/compose.sh <uid> run --rm --no-deps api node scripts/run-job.js scan_contact_to_update_status`.
 4. Côté instance : recréer les expéditeurs et routeurs (identifiants ESP), les configurations d'envoi, les contenus et
    planifications ; régler le domaine de tracking (`TRACKING_HOSTS`, DNS, `bin/tls.sh issue-tracking`), l'URL de
-   désabonnement des gabarits (media : `settings.emailingUnsubUrl` → v2 : `/unsub` de l'instance).
+   désabonnement des gabarits (media : `settings.emailingUnsubUrl` → v2 : `/unsub` de l'instance ; les liens en dur des
+   DEM reprises sont convertis, § 1 bis). Vérifier qu'aucun lien de désabonnement media ne reste dans les contenus :
+   ```sql
+   SELECT count(*) AS dem_media,
+          count(*) FILTER (WHERE v.html ~* 'https?://(unsubscribe\.|[^"''[:space:]]*/desinscription)') AS lien_media_desabonnement,
+          count(*) FILTER (WHERE v.html LIKE '%{{{unsubLink}}}%') AS avec_unsublink
+     FROM "Content" c JOIN "ContentVersion" v ON v."contentId" = c.id
+    WHERE c.config->'media' IS NOT NULL;   -- attendu : lien_media_desabonnement = 0
+   ```
+   En-tête `List-Unsubscribe` des envois v2 : `<mailto:…>` (réglage `unsubscribeMailto`, expéditeur ou routeur) et
+   `<lien /unsub de l'instance>`, avec `List-Unsubscribe-Post: List-Unsubscribe=One-Click` ; tout POST sur ce lien
+   (corps `List-Unsubscribe=One-Click`, urlencoded ou multipart) désabonne dans la v2.
 5. Basculer les inscriptions : les sources reprises gardent leur `api_key` ; les formulaires et l'API d'inscription du site
    pointent désormais sur `https://<hôte>/api/<uid>/…` (voir `docs/04-deploiement.md`). Les inscriptions arrivées dans media
    entre la reprise et la bascule peuvent être rattrapées en relançant la reprise : seuls les **nouveaux** e-mails sont
@@ -338,6 +369,11 @@ plusieurs branches, `email_status`) : contenu créé **inactif** (`unavailable.a
 676 portant un `utm_campaign`, les autres sont des valeurs fixes de l'annonceur). La conversion les résout avec les mêmes
 valeurs que media à l'envoi (identifiants media, uid du produit media), par exemple `utm_campaign=3631-59640-59838&utm_source=<produit>`.
 Ce que media ajoute à la redirection d'un clic (`tsclid`) n'est pas reproduit.
+
+**Désabonnement** : les liens de désabonnement media du pied de page DEM et des publicités deviennent `{{{unsubLink}}}`
+(règles du § 1 bis, compteur `unsubLinksReplaced` : liens remplacés dans les contenus créés ou mis à jour par le passage).
+Recette du 23/11/2026 sur l'instance pilote : 57 DEM mises à jour, 114 liens remplacés (2 par DEM, pied de page du produit),
+plus aucun lien media de désabonnement (requête du § 4).
 
 Mode d'envoi (`MEDIA_CAMPAIGNS_SCHEDULES` dans le `.env`) : `none` (défaut) = **sans envoi**, les contenus sont créés et
 tenus à jour mais rattachés à aucune planification (avant la bascule) ; `<id>[,<id>…]` = chaque contenu importé est
