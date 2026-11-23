@@ -5,7 +5,9 @@
  *   MEDIA_DATABASE_URL=postgres://… node scripts/migrate-from-media.js --list-products
  *   MEDIA_DATABASE_URL=postgres://… node scripts/migrate-from-media.js --product <uid> --inventory
  *   MEDIA_DATABASE_URL=postgres://… node scripts/migrate-from-media.js --product <uid>[,<uid>…] [--since-days 90] [--dry-run]
- *                                        [--batch-size 1000] [--skip-blacklist] [--skip-messages] [--timezone Europe/Paris]
+ *                                        [--batch-size 1000] [--skip-blacklist] [--skip-messages] [--skip-api-keys] [--timezone Europe/Paris]
+ *   MEDIA_DATABASE_URL=postgres://… node scripts/migrate-from-media.js --api-keys-only [--dry-run]
+ *     (clés d'API media seules, pour l'API de transition /v1/… : à faire avant d'activer le relais côté media)
  * L'URL de la source est lue dans MEDIA_DATABASE_URL (jamais sur la ligne de commande). Lit .env (DATABASE_URL, RESOURCE_UID).
  * Le schéma cible doit exister (npm run sync-model). Idempotent : les contacts déjà présents (même e-mail) sont ignorés.
  * Affiche un résumé JSON sur la sortie standard en fin d'exécution.
@@ -21,7 +23,8 @@ const usage = () => {
     [
       'Usage : MEDIA_DATABASE_URL=postgres://… node scripts/migrate-from-media.js [--product <uid>[,<uid>…]]',
       '          [--list-products | --inventory | --dry-run] [--since-days 90] [--batch-size 1000]',
-      '          [--skip-blacklist] [--skip-messages] [--timezone Europe/Paris]'
+      '          [--skip-blacklist] [--skip-messages] [--skip-api-keys] [--timezone Europe/Paris]',
+      '        MEDIA_DATABASE_URL=postgres://… node scripts/migrate-from-media.js --api-keys-only [--dry-run]'
     ].join('\n')
   );
   process.exit(2);
@@ -39,6 +42,8 @@ try {
       'batch-size': { type: 'string', default: String(media.DEFAULT_BATCH_SIZE) },
       'skip-blacklist': { type: 'boolean', default: false },
       'skip-messages': { type: 'boolean', default: false },
+      'skip-api-keys': { type: 'boolean', default: false },
+      'api-keys-only': { type: 'boolean', default: false },
       timezone: { type: 'string' },
       help: { type: 'boolean', default: false }
     }
@@ -102,6 +107,15 @@ const printInventory = (inv) => {
       await source.end();
       process.exit(0);
     }
+    if (values['api-keys-only']) {
+      sequelizeModule = require('../src/storage/sequelize');
+      const sequelize = await sequelizeModule.initWithPostgresql(5);
+      const stats = await media.migrateApiKeysFromMedia({ sequelize, source, dryRun: values['dry-run'] });
+      console.log(JSON.stringify({ apiKeys: stats }, null, 2));
+      await source.end();
+      await sequelizeModule.close();
+      process.exit(0);
+    }
     const resolved = await media.resolveProducts(source, products);
     const inv = await media.inventory(source, resolved, { sinceDays });
     printInventory(inv);
@@ -123,6 +137,7 @@ const printInventory = (inv) => {
       dryRun: values['dry-run'],
       skipBlacklist: values['skip-blacklist'],
       skipMessages: values['skip-messages'],
+      skipApiKeys: values['skip-api-keys'],
       timezone: values.timezone,
       onProgress: (p) => log.info(`${p.product} : ${p.created} contacts créés, ${p.existing} déjà présents, ${p.invalidEmail} e-mails invalides, ${p.duplicates} doublons (lu jusqu'à l'id ${p.lastId})`)
     });
