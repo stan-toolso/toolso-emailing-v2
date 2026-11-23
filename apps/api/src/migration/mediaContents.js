@@ -130,9 +130,107 @@ const renderKeeping = (template, view) => {
   return { html: Mustache.render(template, full), kept: [...kept], droppedInverted: [...droppedInverted] };
 };
 
-/** Adapte les balises media au vocabulaire v2 et retire ce qui n'a pas d'équivalent ; renvoie aussi ce qui a été retiré. */
-const adaptToV2 = (html) => {
-  const removed = { adShortcodes: 0, tsclid: 0, fieldsRenamed: 0 };
+/** Slug par défaut de la page de désabonnement media (`<site>/desinscription`), en plus des pages `unsub` du produit. */
+const DEFAULT_UNSUB_SLUGS = ['desinscription'];
+
+const URL_PARTS = /^(?:https?:)?\/\/([^/?#:\s]+)(?::\d+)?([^?#\s]*)/i;
+
+/** Hôte (minuscules) et chemin (sans / final) d'une URL absolue, ou null. */
+const urlParts = (url) => {
+  const m = URL_PARTS.exec(String(url ?? '').trim());
+  if (!m) {
+    return null;
+  }
+  return { host: m[1].toLowerCase(), path: m[2].replace(/\/+$/, '') };
+};
+
+const stripWww = (host) => host.replace(/^www\./, '');
+
+/**
+ * Repères des liens de désabonnement d'un produit media (qui désabonnent dans media, pas dans la v2) :
+ *   - `settings.emailingUnsubUrl` (page de désabonnement media, ex. `https://news.<site>/desinscription`, à laquelle media
+ *     ajoute `?kid=…&el=…`) et tout ce qui commence par elle ;
+ *   - le domaine `unsubscribe.<domaine du produit>` (page de désabonnement du site, ex. `?email={{contact.email}}`) ;
+ *   - `<domaine du produit ou sous-domaine>/<slug>` pour les pages `unsub` du produit (défaut `desinscription`).
+ * Domaines du produit : `product.main_domain`, hôte de `siteUrl`, de `emailingRedirectionLink` et de `emailingUnsubUrl`
+ * (sans `www.`, et pour les deux derniers leur domaine parent : `news.<site>` → `<site>`).
+ */
+const mediaUnsubMatchers = ({ unsubUrl, siteUrl, redirection, mainDomain, slugs = [] } = {}) => {
+  const domains = new Set();
+  const addDomain = (host, parent = false) => {
+    if (!host) {
+      return;
+    }
+    host = stripWww(host.toLowerCase());
+    domains.add(host);
+    const labels = host.split('.');
+    if (parent && labels.length > 2) {
+      domains.add(labels.slice(1).join('.'));
+    }
+  };
+  addDomain(mainDomain ? urlParts(`//${mainDomain}`)?.host : null);
+  addDomain(urlParts(siteUrl)?.host);
+  addDomain(urlParts(redirection)?.host, true);
+  addDomain(urlParts(unsubUrl)?.host, true);
+  const unsub = urlParts(unsubUrl);
+  return {
+    prefixes: unsub ? [`${unsub.host}${unsub.path}`] : [],
+    domains: [...domains],
+    slugs: [...new Set([...DEFAULT_UNSUB_SLUGS, ...slugs.filter(Boolean).map((s) => String(s).toLowerCase())])]
+  };
+};
+
+/** Vrai si `url` est un lien de désabonnement media d'après `matchers` (`mediaUnsubMatchers`). */
+const isMediaUnsubUrl = (url, matchers) => {
+  if (!matchers) {
+    return false;
+  }
+  const parts = urlParts(url);
+  if (!parts) {
+    return false;
+  }
+  const { host, path } = parts;
+  const full = `${host}${path}`;
+  if (matchers.prefixes.some((p) => full === p || full.startsWith(`${p}/`) || stripWww(host) + path === stripWww(p))) {
+    return true;
+  }
+  const inDomain = (h, d) => h === d || h.endsWith(`.${d}`);
+  if (host.startsWith('unsubscribe.') && matchers.domains.some((d) => inDomain(host.slice('unsubscribe.'.length), d))) {
+    return true;
+  }
+  const firstSegment = decodeURIComponent(path.split('/')[1] ?? '').toLowerCase();
+  return !!firstSegment && matchers.slugs.includes(firstSegment) && matchers.domains.some((d) => inDomain(stripWww(host), d));
+};
+
+/**
+ * Remplace par `{{{unsubLink}}}` (lien de désabonnement v2) le href des liens de désabonnement media : liens marqués
+ * `toolso:unsub` (media enregistre le désabonnement au clic puis redirige) et URL reconnues par `matchers`. Les attributs
+ * sont conservés (`toolso:unsub` garde en v2 le même sens : le clic désabonne). Les balises Mustache (`{{…}}`) en href ne
+ * sont pas touchées. @returns {{ html: string, replaced: number }}
+ */
+const replaceMediaUnsubLinks = (html, matchers = null) => {
+  let replaced = 0;
+  html = String(html ?? '').replace(/<a\b[^>]*>/gi, (tag) => {
+    const href = /(\bhref\s*=\s*)(["'])(.*?)\2/is.exec(tag);
+    if (!href || /^\s*\{\{/.test(href[3])) {
+      return tag;
+    }
+    const marked = /\stoolso:unsub(?=[\s=>/])/i.test(tag);
+    if (!marked && !isMediaUnsubUrl(href[3], matchers)) {
+      return tag;
+    }
+    replaced++;
+    return tag.replace(href[0], `${href[1]}${href[2]}{{{unsubLink}}}${href[2]}`);
+  });
+  return { html, replaced };
+};
+
+/**
+ * Adapte les balises media au vocabulaire v2 et retire ce qui n'a pas d'équivalent ; renvoie aussi ce qui a été retiré.
+ * Les liens de désabonnement media deviennent `{{{unsubLink}}}` (`replaceMediaUnsubLinks`, repères `options.unsub`).
+ */
+const adaptToV2 = (html, options = {}) => {
+  const removed = { adShortcodes: 0, tsclid: 0, fieldsRenamed: 0, unsubLinks: 0 };
   html = html.replace(/\[ad[^\]]*\]/gi, () => {
     removed.adShortcodes++;
     return '';
@@ -145,6 +243,9 @@ const adaptToV2 = (html) => {
     removed.fieldsRenamed++;
     return `{{${prefix}contact.customFields.`;
   });
+  const unsub = replaceMediaUnsubLinks(html, options.unsub ?? null);
+  html = unsub.html;
+  removed.unsubLinks = unsub.replaced;
   return { html, removed };
 };
 
@@ -208,15 +309,18 @@ const activeContentVersion = async (source, productId, type) => {
 };
 
 const existingMediaContents = async (sequelize, transaction) => {
-  const rows = await sequelize.query(`SELECT config->'media'->>'type' AS type, config->'media'->>'id' AS id FROM "Content" WHERE (config->'media') IS NOT NULL`, { type: QueryTypes.SELECT, transaction });
-  return new Set(rows.map((r) => `${r.type}:${r.id}`));
+  const rows = await sequelize.query(`SELECT id AS "contentId", config->'media'->>'type' AS type, config->'media'->>'id' AS id FROM "Content" WHERE (config->'media') IS NOT NULL ORDER BY id`, {
+    type: QueryTypes.SELECT,
+    transaction
+  });
+  return new Map(rows.map((r) => [`${r.type}:${r.id}`, r.contentId]));
 };
 
 const newStats = () => ({
   products: [],
   templates: { created: 0, reused: 0 },
   articles: { read: 0, existing: 0, created: 0, withoutImage: 0 },
-  dems: { read: 0, otherProduct: 0, disabled: 0, existing: 0, created: 0, noTemplate: 0, adShortcodesRemoved: 0, keptTags: {}, droppedInverted: [] }
+  dems: { read: 0, otherProduct: 0, disabled: 0, existing: 0, created: 0, updated: 0, manual: 0, noTemplate: 0, adShortcodesRemoved: 0, unsubLinksReplaced: 0, keptTags: {}, droppedInverted: [] }
 });
 
 /**
@@ -254,11 +358,22 @@ const adTargetsProduct = (ad, productId) => {
   return productIds.length === 0 || productIds.includes(productId);
 };
 
+/** Slugs des pages de désabonnement publiées du produit (table `page`, gabarit `unsub`) ; [] si la table n'existe pas. */
+const unsubPageSlugs = async (source, productId) => {
+  try {
+    const { rows } = await source.query(`SELECT slug FROM page WHERE product_id = $1 AND template = 'unsub' AND slug IS NOT NULL`, [productId]);
+    return rows.map((r) => r.slug);
+  } catch (err) {
+    log.warn(`Pages de désabonnement media non lues (${err.message})`);
+    return [];
+  }
+};
+
 /** Ce qui ne dépend que du produit pour convertir ses DEM : en-tête / pied de page DEM, gabarit dem_template, liens. */
 const demProductContext = async (source, product, known = {}) => {
   let { siteUrl, redirection } = known;
+  const settings = await productSettings(source, product.id, ['siteUrl', 'emailingRedirectionLink', 'emailingUnsubUrl']);
   if (siteUrl === undefined || redirection === undefined) {
-    const settings = await productSettings(source, product.id, ['siteUrl', 'emailingRedirectionLink']);
     siteUrl = (settings.siteUrl ?? '').replace(/\/$/, '');
     redirection = (settings.emailingRedirectionLink ?? siteUrl).replace(/\/$/, '');
   }
@@ -270,7 +385,8 @@ const demProductContext = async (source, product, known = {}) => {
     header: demVersion?.settings?.header ?? null,
     footer: demVersion?.settings?.footer ?? null,
     demTemplateVersion,
-    redirection
+    redirection,
+    unsub: mediaUnsubMatchers({ unsubUrl: settings.emailingUnsubUrl, siteUrl, redirection, mainDomain: product.main_domain, slugs: await unsubPageSlugs(source, product.id) })
   };
 };
 
@@ -306,7 +422,8 @@ const replaceHrefs = (html, fn) =>
  * de contact conservées pour la v2, paramètre de clic du partenaire (`ts_click_field`) ajouté à chaque lien.
  * Le paramètre de clic qui dépend de l'identifiant de clic media (`tsclid`, généré à la redirection media) n'a pas
  * d'équivalent v2 : il n'est pas ajouté (compté dans `tsClick.skipped`).
- * @returns {null | { html, subject, previewText, senderName, kept, droppedInverted, adShortcodesRemoved, tsClick }}
+ * Les liens de désabonnement media (pied de page DEM du produit, publicité) deviennent `{{{unsubLink}}}` (`adaptToV2`).
+ * @returns {null | { html, subject, previewText, senderName, kept, droppedInverted, adShortcodesRemoved, unsubLinksReplaced, tsClick }}
  *          null : DEM `dem_template` sans gabarit dans le produit.
  */
 const convertDem = (ad, ctx) => {
@@ -365,8 +482,8 @@ const convertDem = (ad, ctx) => {
   if (ad.format === 'dem') {
     html = insertHeaderFooter(html, ctx.header, ctx.footer);
   }
-  const adapted = adaptToV2(html);
-  return { html: adapted.html, subject, previewText, senderName, kept: rendered.kept, droppedInverted: rendered.droppedInverted, adShortcodesRemoved: adapted.removed.adShortcodes, tsClick };
+  const adapted = adaptToV2(html, { unsub: ctx.unsub });
+  return { html: adapted.html, subject, previewText, senderName, kept: rendered.kept, droppedInverted: rendered.droppedInverted, adShortcodesRemoved: adapted.removed.adShortcodes, unsubLinksReplaced: adapted.removed.unsubLinks, tsClick };
 };
 
 const demContentName = (ad) => `${ad.campaign?.name ?? 'DEM'} – ${ad.name ?? ad.id}`.slice(0, 255);
@@ -395,10 +512,12 @@ const demMediaConfig = (ad, product) => ({
  * @param {boolean} [options.allArticles] aussi les articles non publiés / exclus de l'emailing
  * @param {number} [options.sinceDays] articles publiés depuis N jours (défaut : tous)
  * @param {boolean} [options.includeDisabled] aussi les publicités / campagnes désactivées ou archivées
+ * @param {boolean} [options.updateDems] DEM déjà reprises : HTML, objet, préentête et expéditeur de la version par défaut
+ *        recalculés (ex. après une correction de la conversion) ; un contenu `config.media.manual` n'est pas touché
  * @param {boolean} [options.dryRun]
  */
 const migrateContentsFromMedia = async (options) => {
-  const { sequelize, dryRun = false, allArticles = false, includeDisabled = false, sinceDays = 0 } = options;
+  const { sequelize, dryRun = false, allArticles = false, includeDisabled = false, sinceDays = 0, updateDems = false } = options;
   const doArticles = options.articles !== false;
   const { Content, ContentVersion, ContentTemplate } = sequelize.models;
   const stats = newStats();
@@ -436,7 +555,7 @@ const migrateContentsFromMedia = async (options) => {
       );
       content.defaultVersionId = contentVersion.id;
       await content.save({ transaction });
-      existing.add(`${media.type}:${media.id}`);
+      existing.set(`${media.type}:${media.id}`, content.id);
       return content;
     };
 
@@ -542,7 +661,8 @@ const migrateContentsFromMedia = async (options) => {
             stats.dems.disabled++;
             continue;
           }
-          if (existing.has(`dem:${ad.id}`)) {
+          const existingId = existing.get(`dem:${ad.id}`);
+          if (existingId && !updateDems) {
             stats.dems.existing++;
             continue;
           }
@@ -551,7 +671,28 @@ const migrateContentsFromMedia = async (options) => {
             stats.dems.noTemplate++;
             continue;
           }
+          if (existingId) {
+            stats.dems.existing++;
+            const content = await Content.findByPk(existingId, { transaction });
+            if (content?.config?.media?.manual === true) {
+              stats.dems.manual++;
+              continue;
+            }
+            const version = content?.defaultVersionId ? await ContentVersion.findByPk(content.defaultVersionId, { transaction }) : null;
+            if (!version) {
+              continue;
+            }
+            const next = { html: converted.html, subject: (converted.subject ?? '').slice(0, 255), previewText: (converted.previewText ?? '').slice(0, 255), senderName: (converted.senderName ?? '').slice(0, 255) };
+            if (Object.keys(next).some((k) => (version[k] ?? '') !== next[k])) {
+              Object.assign(version, next);
+              await version.save({ transaction });
+              stats.dems.updated++;
+              stats.dems.unsubLinksReplaced += converted.unsubLinksReplaced;
+            }
+            continue;
+          }
           stats.dems.adShortcodesRemoved += converted.adShortcodesRemoved;
+          stats.dems.unsubLinksReplaced += converted.unsubLinksReplaced;
           for (const tag of converted.kept) {
             stats.dems.keptTags[tag] = (stats.dems.keptTags[tag] ?? 0) + 1;
           }
@@ -596,6 +737,9 @@ module.exports = {
   migrateContentsFromMedia,
   renderKeeping,
   adaptToV2,
+  mediaUnsubMatchers,
+  isMediaUnsubUrl,
+  replaceMediaUnsubLinks,
   insertHeaderFooter,
   resume,
   loadDemAds,

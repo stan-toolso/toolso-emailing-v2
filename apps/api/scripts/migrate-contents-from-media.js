@@ -2,7 +2,8 @@
 /**
  * Reprend les contenus d'un produit toolso-media sous forme de Content v2 : articles (base media) et DEM (base ads).
  *   MEDIA_DATABASE_URL=postgres://… [ADS_DATABASE_URL=postgres://…] node scripts/migrate-contents-from-media.js --product <uid>
- *        [--articles-only | --dems-only] [--all-articles] [--since-days N] [--include-disabled] [--dry-run]
+ *        [--articles-only | --dems-only] [--all-articles] [--since-days N] [--include-disabled] [--update-dems] [--dry-run]
+ * --update-dems : DEM déjà reprises recalculées (version par défaut), ex. après une correction de la conversion.
  * Sans ADS_DATABASE_URL, seuls les articles sont repris. Lit .env (DATABASE_URL, RESOURCE_UID). Idempotent
  * (Content.config.media identifie l'origine). Résumé JSON sur la sortie standard. Voir docs/06-migration-depuis-media.md.
  */
@@ -12,7 +13,7 @@ const { parseArgs } = require('util');
 const log = require('../src/util/log').getLogger('MigrateContentsFromMedia');
 
 const usage = () => {
-  console.error('Usage : MEDIA_DATABASE_URL=… [ADS_DATABASE_URL=…] node scripts/migrate-contents-from-media.js --product <uid>[,<uid>…] [--articles-only | --dems-only] [--all-articles] [--since-days N] [--include-disabled] [--dry-run]');
+  console.error('Usage : MEDIA_DATABASE_URL=… [ADS_DATABASE_URL=…] node scripts/migrate-contents-from-media.js --product <uid>[,<uid>…] [--articles-only | --dems-only] [--all-articles] [--since-days N] [--include-disabled] [--update-dems] [--dry-run]');
   process.exit(2);
 };
 
@@ -26,6 +27,7 @@ try {
       'all-articles': { type: 'boolean', default: false },
       'since-days': { type: 'string', default: '0' },
       'include-disabled': { type: 'boolean', default: false },
+      'update-dems': { type: 'boolean', default: false },
       'dry-run': { type: 'boolean', default: false },
       help: { type: 'boolean', default: false }
     }
@@ -76,6 +78,7 @@ if (!dems && !values['articles-only'] && !adsUrl) {
       allArticles: values['all-articles'],
       sinceDays,
       includeDisabled: values['include-disabled'],
+      updateDems: values['update-dems'],
       dryRun: values['dry-run']
     });
     const total = await sequelize.models.Content.count();

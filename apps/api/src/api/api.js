@@ -13,6 +13,8 @@ module.exports = {
     app.use(require('./tracking/trackingRoutes').router);
     app.use(require('./webhooks/webhookRoutes').router);
     app.use(require('./uploadRoutes').router);
+    // API de transition toolso-media : mêmes routes, clés et réponses que l'API REST de media
+    app.use('/v1', require('./mediaCompat/mediaCompatRoutes').router);
     app.get('/health', async (req, res) => {
       try {
         await require('../storage/sequelize').get().query('SELECT 1');

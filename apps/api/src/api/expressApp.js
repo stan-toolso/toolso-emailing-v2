@@ -25,7 +25,9 @@ module.exports = {
 
     app.set('view engine', 'pug');
 
-    app.use(graphqlUploadExpress({ maxFileSize: 1000000000, maxFiles: 10 }));
+    // envois de fichiers GraphQL (multipart) : seulement sur /graphql, pour ne pas rejeter les autres POST multipart
+    // (ex. désabonnement en un clic RFC 8058, que certaines messageries envoient en multipart/form-data)
+    app.use('/graphql', graphqlUploadExpress({ maxFileSize: 1000000000, maxFiles: 10 }));
 
     app.use(requestIp.mw());
 

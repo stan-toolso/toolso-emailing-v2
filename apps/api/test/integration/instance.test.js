@@ -177,6 +177,24 @@ test('désabonnement : page GET puis POST crée un événement unsub', async () 
   await models().ActionQueue.destroy({ where: {} });
 });
 
+test('désabonnement en un clic (RFC 8058) : POST List-Unsubscribe=One-Click crée un événement unsub', async () => {
+  const key = 'unsubkey';
+  const obj = encodeURIComponent(CryptoJS.AES.encrypt(JSON.stringify({ email: 'contact@example.com', mirrorId: '11111111-2222-4333-8444-555555555555', uid: 'test' }), key).toString());
+  const done = await request.post(`/unsub/fr/${key}/${obj}`).type('form').send('List-Unsubscribe=One-Click');
+  expect(done.status).toBe(200);
+  const multipart = await request.post(`/unsub/fr/${key}/${obj}`).field('List-Unsubscribe', 'One-Click');
+  expect(multipart.status).toBe(200);
+  const events = await models().ActionQueue.findAll({ where: { type: 'insert_contact_event' }, order: [['id', 'ASC']] });
+  expect(events.map((e) => [e.payload.eventType, e.payload.email, e.payload.details.oneclick])).toEqual([
+    ['unsub', 'contact@example.com', 'List-Unsubscribe-Post'],
+    ['unsub', 'contact@example.com', 'List-Unsubscribe-Post']
+  ]);
+  // GET (lien du message, aperçu d'un antivirus) : page de confirmation, pas de désabonnement
+  await request.get(`/unsub/fr/${key}/${obj}`);
+  expect(await models().ActionQueue.count({ where: { type: 'insert_contact_event' } })).toBe(2);
+  await models().ActionQueue.destroy({ where: {} });
+});
+
 test('webhook toolso : une livraison devient une action insert_contact_event', async () => {
   const body = {
     eventType: 'Delivery',

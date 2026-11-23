@@ -6,6 +6,8 @@
 #   sudo bin/migrate-from-media.sh <uid> --product <p>[,<p>…] --inventory [source]   ce qui sera repris / non repris
 #   sudo bin/migrate-from-media.sh <uid> --product <p>[,<p>…] --dry-run   [source]   simulation (rien n'est écrit)
 #   sudo bin/migrate-from-media.sh <uid> --product <p>[,<p>…] [--dump] [source]      reprise des contacts
+#   sudo bin/migrate-from-media.sh <uid> --api-keys [--dry-run] [source]             clés d'API media seules (API de
+#                                                                                      transition /v1/… ; avant le relais)
 #   sudo bin/migrate-from-media.sh <uid> --product <p> --contents [--articles-only | --dems-only] [source] [ads]
 #                                                                                      reprise des contenus (articles → Content
 #                                                                                      newsletter, DEM → Content marketing)
@@ -19,7 +21,7 @@
 #   sudo bin/migrate-from-media.sh <uid> --product <p> --senders --slots [--slot-time …] [--dry-run] [source]
 #                                                                                      expéditeurs (routeurs SANS identifiants),
 #                                                                                      configurations d'envoi, créneaux → planifications
-#                                                                                      créées DÉSACTIVÉES (docs/06 § 8)
+#                                                                                      créées DÉSACTIVÉES (docs/06 § 10)
 # Source (une des deux formes) :
 #   --source-url postgres://user:mdp@hôte:5432/base    (ou variable MEDIA_DATABASE_URL déjà exportée)
 #   --media-instance <nom>   secret AWS Secrets Manager « media-<nom> » (un secret par base media, noms dans backend/build/update_model_all.js du dépôt media),
@@ -29,7 +31,7 @@
 #   secret toolso-ads(-readonly) pointe vers le proxy RDS, joignable seulement depuis le VPC ; hors AWS, lire la base
 #   directement sur son cluster (ex. --ads-host toolso-media-2.cluster-….eu-west-3.rds.amazonaws.com).
 # Options contenus : --all-articles (aussi brouillons / exclus de l'emailing), --include-disabled (publicités désactivées),
-#   --since-days N (articles publiés depuis N jours).
+#   --since-days N (articles publiés depuis N jours), --update-dems (DEM déjà reprises recalculées : ex. liens de désabonnement).
 # Synchronisation (--sync-statuses) : source et produits par défaut lus dans le .env de l'instance (MEDIA_DATABASE_URL,
 #   MEDIA_PRODUCTS, écrits par bin/set-media-source.sh) ; --email-flags-days N (envois media relus pour leurs drapeaux,
 #   défaut 60), --no-recalculate (laisser le recalcul des statuts au job scan_contact_to_update_status). Job planifié
@@ -40,7 +42,7 @@
 #   Identifiants des routeurs ensuite : bin/compose.sh <uid> run --rm -T --no-deps api node scripts/set-mail-router-credentials.js …
 # Options : --since-days N (envois repris en événements, défaut 90 ; 0 = seulement les événements de statut),
 #           --dump (pg_dump -Fc de la base media dans BACKUP_DIR/media-migration/ avant la reprise, archive),
-#           --skip-blacklist, --skip-messages, --batch-size N, --ssl-mode <require|no-verify|disable> (défaut no-verify :
+#           --skip-blacklist, --skip-messages, --skip-api-keys, --batch-size N, --ssl-mode <require|no-verify|disable> (défaut no-verify :
 #           connexion chiffrée sans vérification du certificat, comme PGSSLMODE=require), --yes.
 # Prérequis : instance créée et démarrée (bin/add-database.sh <uid> …) ; la base media joignable depuis les conteneurs de ce
 #   serveur (groupe de sécurité RDS) ; CLI aws et jq pour --media-instance. Un contact déjà présent (même e-mail) dans la base
@@ -53,9 +55,9 @@ PG_IMAGE="${PG_IMAGE:-postgres:17}"
 MEDIA_AWS_REGION="${MEDIA_AWS_REGION:-eu-west-3}"
 
 uid="" products="" source_url="${MEDIA_DATABASE_URL:-}" media_instance="" since_days="" batch_size="" ssl_mode="no-verify"
-ads_url="${ADS_DATABASE_URL:-}" ads_secret="" ads_host_override="" contents=0 articles_only=0 dems_only=0 all_articles=0 include_disabled=0
+ads_url="${ADS_DATABASE_URL:-}" ads_secret="" ads_host_override="" contents=0 articles_only=0 dems_only=0 all_articles=0 include_disabled=0 update_dems=0
 do_senders=0 do_slots=0 slot_times=() tracking_domain=""
-mode="migrate" do_dump=0 skip_blacklist=0 skip_messages=0
+mode="migrate" do_dump=0 skip_blacklist=0 skip_messages=0 skip_api_keys=0 api_keys_only=0
 sync_statuses=0 sync_full=0 sync_no_new=0 sync_no_recalc=0 sync_cursor=0 email_flags_days=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -83,14 +85,17 @@ while [[ $# -gt 0 ]]; do
     --slots) do_slots=1; shift ;;
     --slot-time) slot_times+=(--slot-time "${2:-}"); shift 2 ;;
     --tracking-domain) tracking_domain="${2:-}"; shift 2 ;;
+    --update-dems) update_dems=1; shift ;;
     --list-products) mode="list"; shift ;;
     --inventory) mode="inventory"; shift ;;
     --dry-run) mode="dry-run"; shift ;;
     --dump) do_dump=1; shift ;;
     --skip-blacklist) skip_blacklist=1; shift ;;
     --skip-messages) skip_messages=1; shift ;;
+    --skip-api-keys) skip_api_keys=1; shift ;;
+    --api-keys) api_keys_only=1; shift ;;
     --yes) export ASSUME_YES=1; shift ;;
-    -h|--help) sed -n '2,47p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,49p' "$0"; exit 0 ;;
     --*) die "Option inconnue : $1" ;;
     *) [[ -z "$uid" ]] || die "Un seul identifiant de base attendu."; uid="$1"; shift ;;
   esac
@@ -111,7 +116,7 @@ if [[ "$sync_statuses" == "1" ]]; then
   fi
   [[ -n "$products" || "$sync_cursor" == "1" ]] || die "Produits media non précisés : --product <uid> ou MEDIA_PRODUCTS dans $instance_env."
 fi
-[[ "$mode" == "list" || -n "$products" ]] || die "Préciser le ou les produits media à reprendre : --product <uid>[,<uid>…] (liste : --list-products)."
+[[ "$mode" == "list" || "$api_keys_only" == "1" || -n "$products" ]] || die "Préciser le ou les produits media à reprendre : --product <uid>[,<uid>…] (liste : --list-products)."
 container_running postgres || die "PostgreSQL n'est pas démarré (bin/compose.sh platform up -d)."
 docker image inspect toolso-emailing-api:latest >/dev/null 2>&1 || die "Image toolso-emailing-api absente : bin/add-database.sh $uid … la construit."
 
@@ -207,6 +212,7 @@ args=()
 [[ -n "$batch_size" ]] && args+=(--batch-size "$batch_size")
 [[ "$skip_blacklist" == "1" ]] && args+=(--skip-blacklist)
 [[ "$skip_messages" == "1" ]] && args+=(--skip-messages)
+[[ "$skip_api_keys" == "1" ]] && args+=(--skip-api-keys)
 case "$mode" in
   list) args+=(--list-products) ;;
   inventory) args+=(--inventory) ;;
@@ -248,6 +254,15 @@ if [[ "$do_senders" == "1" || "$do_slots" == "1" ]]; then
   die "La reprise de la configuration d'envoi a échoué (voir $log_file)."
 fi
 
+if [[ "$api_keys_only" == "1" ]]; then
+  [[ "$mode" == "migrate" || "$mode" == "dry-run" ]] || die "--api-keys s'utilise avec --dry-run ou sans mode."
+  kargs=(--api-keys-only)
+  [[ "$mode" == "dry-run" ]] && kargs+=(--dry-run)
+  info "Clés d'API media → emailing_$uid (réservées à l'API de transition /v1/…)"
+  run_node "${kargs[@]}"
+  exit $?
+fi
+
 if [[ "$contents" == "1" ]]; then
   [[ "$mode" == "migrate" || "$mode" == "dry-run" ]] || die "--contents s'utilise avec --dry-run ou sans mode (reprise)."
   cargs=(--product "$products")
@@ -255,6 +270,7 @@ if [[ "$contents" == "1" ]]; then
   [[ "$dems_only" == "1" ]] && cargs+=(--dems-only)
   [[ "$all_articles" == "1" ]] && cargs+=(--all-articles)
   [[ "$include_disabled" == "1" ]] && cargs+=(--include-disabled)
+  [[ "$update_dems" == "1" ]] && cargs+=(--update-dems)
   [[ -n "$since_days" ]] && cargs+=(--since-days "$since_days")
   if [[ "$mode" == "dry-run" ]]; then
     run_node_contents "${cargs[@]}" --dry-run

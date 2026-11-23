@@ -5,7 +5,7 @@
  *   MEDIA_DATABASE_URL=postgres://… node scripts/migrate-sending-from-media.js --product <uid>
  *        [--senders-only | --slots-only] [--slot-time HH:MM[,HH:MM…] | --slot-time <id>=HH:MM[,…]]… [--tracking-domain <url>] [--dry-run]
  * Lit .env (DATABASE_URL, RESOURCE_UID, API_PUBLIC_URL, TRACKING_HOSTS). Idempotent (config.media identifie l'origine).
- * Résumé JSON sur la sortie standard. Voir docs/06-migration-depuis-media.md § 8.
+ * Résumé JSON sur la sortie standard. Voir docs/06-migration-depuis-media.md § 10.
  */
 require('dotenv').config();
 process.env.LOG_LEVEL = process.env.LOG_LEVEL || 'INFO';
