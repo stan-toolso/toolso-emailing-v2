@@ -14,7 +14,9 @@
 #   --media-instance <nom>   secret AWS Secrets Manager « media-<nom> » (un secret par base media, noms dans backend/build/update_model_all.js du dépôt media),
 #                            région MEDIA_AWS_REGION (défaut eu-west-3, celle de toolso-media), profil AWS_PROFILE.
 # Base ads (DEM, pour --contents) : --ads-url postgres://… (ou ADS_DATABASE_URL) ou --ads-secret <nom> (ex. toolso-ads,
-#   même région) ; sans elle, --contents ne reprend que les articles.
+#   même région) ; sans elle, --contents ne reprend que les articles. --ads-host <hôte> remplace l'hôte du secret : le
+#   secret toolso-ads(-readonly) pointe vers le proxy RDS, joignable seulement depuis le VPC ; hors AWS, lire la base
+#   directement sur son cluster (ex. --ads-host toolso-media-2.cluster-….eu-west-3.rds.amazonaws.com).
 # Options contenus : --all-articles (aussi brouillons / exclus de l'emailing), --include-disabled (publicités désactivées),
 #   --since-days N (articles publiés depuis N jours).
 # Options : --since-days N (envois repris en événements, défaut 90 ; 0 = seulement les événements de statut),
@@ -32,7 +34,7 @@ PG_IMAGE="${PG_IMAGE:-postgres:17}"
 MEDIA_AWS_REGION="${MEDIA_AWS_REGION:-eu-west-3}"
 
 uid="" products="" source_url="${MEDIA_DATABASE_URL:-}" media_instance="" since_days="" batch_size="" ssl_mode="no-verify"
-ads_url="${ADS_DATABASE_URL:-}" ads_secret="" contents=0 articles_only=0 dems_only=0 all_articles=0 include_disabled=0
+ads_url="${ADS_DATABASE_URL:-}" ads_secret="" ads_host_override="" contents=0 articles_only=0 dems_only=0 all_articles=0 include_disabled=0
 mode="migrate" do_dump=0 skip_blacklist=0 skip_messages=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,6 +46,7 @@ while [[ $# -gt 0 ]]; do
     --ssl-mode) ssl_mode="${2:-}"; shift 2 ;;
     --ads-url) ads_url="${2:-}"; shift 2 ;;
     --ads-secret) ads_secret="${2:-}"; shift 2 ;;
+    --ads-host) ads_host_override="${2:-}"; shift 2 ;;
     --contents) contents=1; shift ;;
     --articles-only) articles_only=1; shift ;;
     --dems-only) dems_only=1; shift ;;
@@ -102,6 +105,7 @@ if [[ "$contents" == "1" && "$articles_only" == "0" ]]; then
     ads_db="$(jq -r '.database // .dbname // empty' <<<"$json")"; ads_user="$(jq -r '.username // .user // empty | @uri' <<<"$json")"
     ads_pass="$(jq -r '.password // empty | @uri' <<<"$json")"
     unset json
+    [[ -z "$ads_host_override" ]] || ads_host="$ads_host_override"
     [[ -n "$ads_host" && -n "$ads_db" && -n "$ads_user" && -n "$ads_pass" ]] || die "Secret $ads_secret incomplet."
     ads_url="postgres://$ads_user:$ads_pass@$ads_host:$ads_port/$ads_db"
     unset ads_pass
