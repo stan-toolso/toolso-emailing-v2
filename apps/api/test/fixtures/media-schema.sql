@@ -193,6 +193,26 @@ CREATE TABLE email_sending_config (
     updated_at timestamp with time zone
 );
 
+CREATE TABLE email_slot (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name text,
+    product_id integer,
+    created_at timestamp with time zone,
+    updated_at timestamp with time zone,
+    type character varying(255),
+    settings jsonb,
+    sending_config_id integer,
+    is_active boolean DEFAULT false
+);
+
+CREATE TABLE email_slot_content (
+    email_content_id integer NOT NULL,
+    email_slot_id integer NOT NULL,
+    product_id integer NOT NULL,
+    created_at timestamp with time zone,
+    updated_at timestamp with time zone
+);
+
 CREATE TABLE email_content (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name character varying(255),
