@@ -220,6 +220,169 @@ const newStats = () => ({
 });
 
 /**
+ * Publicités DEM de la base ads, avec leur groupe et leur campagne complets (tels que media les passe aux gabarits), sans
+ * les colonnes de statistiques (volumineuses). Avec `productIds`, seulement celles qui peuvent cibler ces produits
+ * (`ad_group.support_settings.productIds` vide ou contenant l'un d'eux) : la base ads est commune à tous les clients.
+ */
+const loadDemAds = async (ads, productIds = null) => {
+  const params = [];
+  let productFilter = '';
+  if (productIds && productIds.length > 0) {
+    params.push(productIds.map(String));
+    productFilter = `AND (coalesce(jsonb_array_length(CASE WHEN jsonb_typeof(g.support_settings->'productIds') = 'array' THEN g.support_settings->'productIds' END), 0) = 0
+              OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(g.support_settings->'productIds') pid WHERE pid = ANY($1::text[])))`;
+  }
+  const { rows } = await ads.query(
+    `SELECT a.id, a.name, a.status, a.enabled, a.advertiser_id, a.ad_group_id, a.campaign_id, a.format, a.content, a.destination, a.public, a.support_settings,
+            to_jsonb(g) - 'stats' - 'last_stats' - 'demographic_stats' AS ad_group,
+            to_jsonb(c) - 'stats' - 'last_stats' - 'demographic_stats' AS campaign,
+            adv.name AS advertiser_name, p.name AS partner_name, p.ts_click_field, p.ts_click_value
+       FROM ad a
+       JOIN ad_group g ON g.id = a.ad_group_id
+       JOIN campaign c ON c.id = a.campaign_id
+       LEFT JOIN advertiser adv ON adv.id = a.advertiser_id
+       LEFT JOIN partner p ON p.id = g.partner_id
+      WHERE a.format IN ('dem', 'dem_template') ${productFilter} ORDER BY a.id`,
+    params
+  );
+  return rows;
+};
+
+/** Filtre de support de media (bestAd) : `ad_group.support_settings.productIds` vide ou contenant le produit. */
+const adTargetsProduct = (ad, productId) => {
+  const productIds = (ad.ad_group?.support_settings?.productIds ?? []).map((id) => parseInt(id, 10));
+  return productIds.length === 0 || productIds.includes(productId);
+};
+
+/** Ce qui ne dépend que du produit pour convertir ses DEM : en-tête / pied de page DEM, gabarit dem_template, liens. */
+const demProductContext = async (source, product, known = {}) => {
+  let { siteUrl, redirection } = known;
+  if (siteUrl === undefined || redirection === undefined) {
+    const settings = await productSettings(source, product.id, ['siteUrl', 'emailingRedirectionLink']);
+    siteUrl = (settings.siteUrl ?? '').replace(/\/$/, '');
+    redirection = (settings.emailingRedirectionLink ?? siteUrl).replace(/\/$/, '');
+  }
+  const demVersion = await activeContentVersion(source, product.id, 'dem');
+  const demTemplateVersion = await activeContentVersion(source, product.id, 'dem_template');
+  return {
+    product,
+    productView: { id: product.id, uid: product.uid, name: product.name, main_domain: product.main_domain },
+    header: demVersion?.settings?.header ?? null,
+    footer: demVersion?.settings?.footer ?? null,
+    demTemplateVersion,
+    redirection
+  };
+};
+
+const TSCLID_PATTERN = /\{\{\{?\s*tsclid\s*\}?\}\}|__tsclid__/;
+
+/**
+ * Ajoute (ou remplace) un paramètre dans une URL, comme `addParameterToUrl` de media (valeur insérée telle quelle), sans
+ * réencoder le reste de l'URL : elle contient encore des balises Mustache rendues par la v2 à l'envoi.
+ */
+const addParameterToUrl = (url, key, value) => {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const existing = new RegExp(`([?&])${escaped}=[^&#]*`);
+  if (url.indexOf('?') >= 0) {
+    return existing.test(url) ? url.replace(existing, (m, sep) => `${sep}${key}=${value}`) : `${url}&${key}=${value}`;
+  }
+  return `${url}?${key}=${value}`;
+};
+
+/** Applique `fn` à chaque href de `html` (media : `HtmlReplace.replaceAllHref`), sauf `#`, `mailto:` et les balises v2 (`{{{unsubLink}}}`…). */
+const replaceHrefs = (html, fn) =>
+  html.replace(/(\bhref\s*=\s*)(["'])(.*?)\2/gis, (m, attr, quote, url) => {
+    const trimmed = url.trim();
+    if (!trimmed || trimmed === '#' || /^mailto:/i.test(trimmed) || /^\{\{/.test(trimmed)) {
+      return m;
+    }
+    return `${attr}${quote}${fn(url)}${quote}`;
+  });
+
+/**
+ * Convertit une publicité DEM (format `dem` ou `dem_template`) en HTML v2, comme `buildEmailContent.js` de media la compose
+ * à l'envoi : variables `ad.*`, `ad_group.*`, `campaign.*`, `product.*` résolues (les utm des liens, ex.
+ * `utm_campaign={{campaign.id}}-{{ad_group.id}}-{{ad.id}}&utm_source={{product.uid}}`, deviennent littéraux), balises
+ * de contact conservées pour la v2, paramètre de clic du partenaire (`ts_click_field`) ajouté à chaque lien.
+ * Le paramètre de clic qui dépend de l'identifiant de clic media (`tsclid`, généré à la redirection media) n'a pas
+ * d'équivalent v2 : il n'est pas ajouté (compté dans `tsClick.skipped`).
+ * @returns {null | { html, subject, previewText, senderName, kept, droppedInverted, adShortcodesRemoved, tsClick }}
+ *          null : DEM `dem_template` sans gabarit dans le produit.
+ */
+const convertDem = (ad, ctx) => {
+  const content = ad.content && typeof ad.content === 'object' ? ad.content : {};
+  const adGroup = { ...(ad.ad_group ?? {}), id: ad.ad_group_id, customs: ad.ad_group?.customs ?? {} };
+  const campaign = { ...(ad.campaign ?? {}), id: ad.campaign_id };
+  const adRow = { ...ad };
+  delete adRow.ad_group;
+  delete adRow.campaign;
+  const adView = { ...adRow, content, ad_group: adGroup, campaign };
+  const baseView = { ad: adView, ad_group: adGroup, campaign, product: ctx.productView, database: ctx.productView, content: { id: null }, tsclid: '' };
+  let html;
+  let subject;
+  let previewText;
+  let senderName = '';
+  let rendered;
+  let view = baseView;
+  if (ad.format === 'dem') {
+    rendered = renderKeeping(content.html ?? '', baseView);
+    html = rendered.html;
+    subject = content.subject ?? '';
+    senderName = content.sender_name ?? '';
+    previewText = content.preview_text ?? '';
+  } else {
+    if (!ctx.demTemplateVersion) {
+      return null;
+    }
+    const destination = ad.destination && typeof ad.destination === 'object' ? ad.destination : {};
+    view = { ...baseView, ad: { ...adView, ...content } };
+    if (destination.url) {
+      view.ad.link = renderKeeping(destination.url, view).html;
+    }
+    if (content.image && content.image.url) {
+      const url = content.image.url.startsWith('/') ? `${ctx.redirection}${content.image.url}` : content.image.url;
+      view.ad.image = { ...content.image, url, src: url };
+    }
+    rendered = renderKeeping(ctx.demTemplateVersion.body ?? '', view);
+    html = rendered.html;
+    subject = renderKeeping(content.subject ?? content.title ?? ctx.demTemplateVersion.subject ?? '', view).html;
+    previewText = renderKeeping(content.preview_text ?? content.title ?? ctx.demTemplateVersion.preview_text ?? '', view).html;
+    senderName = ctx.demTemplateVersion.sender_name ?? '';
+  }
+  // paramètre de clic du partenaire, ajouté par media à tous les liens de la publicité
+  const tsClick = { applied: 0, skipped: 0 };
+  if (ad.ts_click_field && ad.ts_click_value) {
+    if (TSCLID_PATTERN.test(ad.ts_click_value)) {
+      tsClick.skipped = 1;
+    } else {
+      const value = renderKeeping(ad.ts_click_value, view).html;
+      html = replaceHrefs(html, (url) => {
+        tsClick.applied++;
+        return addParameterToUrl(url, ad.ts_click_field, value);
+      });
+    }
+  }
+  if (ad.format === 'dem') {
+    html = insertHeaderFooter(html, ctx.header, ctx.footer);
+  }
+  const adapted = adaptToV2(html);
+  return { html: adapted.html, subject, previewText, senderName, kept: rendered.kept, droppedInverted: rendered.droppedInverted, adShortcodesRemoved: adapted.removed.adShortcodes, tsClick };
+};
+
+const demContentName = (ad) => `${ad.campaign?.name ?? 'DEM'} – ${ad.name ?? ad.id}`.slice(0, 255);
+
+const demMediaConfig = (ad, product) => ({
+  type: 'dem',
+  id: ad.id,
+  product: product.uid,
+  format: ad.format,
+  campaignId: ad.campaign_id,
+  adGroupId: ad.ad_group_id,
+  partner: ad.partner_name ?? null,
+  tsClick: ad.ts_click_field ? { field: ad.ts_click_field, value: ad.ts_click_value } : null
+});
+
+/**
  * @param {object} options
  * @param {import('sequelize').Sequelize} options.sequelize
  * @param {string} [options.sourceUrl] base media (ou `source`)
@@ -281,7 +444,6 @@ const migrateContentsFromMedia = async (options) => {
       const settings = await productSettings(source, product.id, ['siteUrl', 'imgBaseUrl', 'articleLinkCustomField', 'emailingRedirectionLink', 'siteName']);
       const siteUrl = (settings.siteUrl ?? '').replace(/\/$/, '');
       const redirection = (settings.emailingRedirectionLink ?? siteUrl).replace(/\/$/, '');
-      const productView = { id: product.id, uid: product.uid, name: product.name, main_domain: product.main_domain };
 
       // ---------- articles ----------
       if (doArticles) {
@@ -368,29 +530,15 @@ const migrateContentsFromMedia = async (options) => {
 
       // ---------- DEM (base ads) ----------
       if (doDems) {
-        const demVersion = await activeContentVersion(source, product.id, 'dem');
-        const demTemplateVersion = await activeContentVersion(source, product.id, 'dem_template');
-        const header = demVersion?.settings?.header ?? null;
-        const footer = demVersion?.settings?.footer ?? null;
-        const { rows } = await ads.query(
-          `SELECT a.*, g.name AS ad_group_name, g.enabled AS ad_group_enabled, g.support_settings AS ad_group_support_settings, g.customs AS ad_group_customs,
-                  c.name AS campaign_name, c.enabled AS campaign_enabled, c.archived AS campaign_archived, c.public AS campaign_public,
-                  adv.name AS advertiser_name, p.name AS partner_name, p.ts_click_field, p.ts_click_value
-             FROM ad a
-             JOIN ad_group g ON g.id = a.ad_group_id
-             JOIN campaign c ON c.id = a.campaign_id
-             LEFT JOIN advertiser adv ON adv.id = a.advertiser_id
-             LEFT JOIN partner p ON p.id = g.partner_id
-            WHERE a.format IN ('dem', 'dem_template') ORDER BY a.id`
-        );
+        const ctx = await demProductContext(source, product, { siteUrl, redirection });
+        const rows = await loadDemAds(ads, [product.id]);
         stats.dems.read += rows.length;
         for (const ad of rows) {
-          const productIds = (ad.ad_group_support_settings?.productIds ?? []).map((id) => parseInt(id, 10));
-          if (productIds.length > 0 && !productIds.includes(product.id)) {
+          if (!adTargetsProduct(ad, product.id)) {
             stats.dems.otherProduct++;
             continue;
           }
-          if (!includeDisabled && (!isOn(ad.enabled) || !isOn(ad.ad_group_enabled) || !isOn(ad.campaign_enabled) || ad.campaign_archived === true)) {
+          if (!includeDisabled && (!isOn(ad.enabled) || !isOn(ad.ad_group?.enabled) || !isOn(ad.campaign?.enabled) || ad.campaign?.archived === true)) {
             stats.dems.disabled++;
             continue;
           }
@@ -398,58 +546,26 @@ const migrateContentsFromMedia = async (options) => {
             stats.dems.existing++;
             continue;
           }
-          const content = ad.content && typeof ad.content === 'object' ? ad.content : {};
-          const adGroup = { id: ad.ad_group_id, name: ad.ad_group_name, customs: ad.ad_group_customs ?? {} };
-          const campaign = { id: ad.campaign_id, name: ad.campaign_name, public: ad.campaign_public };
-          let html;
-          let subject;
-          let previewText;
-          let senderName = '';
-          const adView = { ...ad, content, ad_group: adGroup, campaign };
-          const baseView = { ad: adView, ad_group: adGroup, campaign, product: productView, database: productView, content: { id: null }, tsclid: '' };
-          let rendered;
-          if (ad.format === 'dem') {
-            rendered = renderKeeping(content.html ?? '', baseView);
-            html = insertHeaderFooter(rendered.html, header, footer);
-            subject = content.subject ?? '';
-            senderName = content.sender_name ?? '';
-            previewText = content.preview_text ?? '';
-          } else {
-            if (!demTemplateVersion) {
-              stats.dems.noTemplate++;
-              continue;
-            }
-            const destination = ad.destination && typeof ad.destination === 'object' ? ad.destination : {};
-            const view = { ...baseView, ad: { ...adView, ...content } };
-            if (destination.url) {
-              view.ad.link = renderKeeping(destination.url, view).html;
-            }
-            if (content.image && content.image.url) {
-              const url = content.image.url.startsWith('/') ? `${redirection}${content.image.url}` : content.image.url;
-              view.ad.image = { ...content.image, url, src: url };
-            }
-            rendered = renderKeeping(demTemplateVersion.body ?? '', view);
-            html = rendered.html;
-            subject = renderKeeping(content.subject ?? content.title ?? demTemplateVersion.subject ?? '', view).html;
-            previewText = renderKeeping(content.preview_text ?? content.title ?? demTemplateVersion.preview_text ?? '', view).html;
-            senderName = demTemplateVersion.sender_name ?? '';
+          const converted = convertDem(ad, ctx);
+          if (!converted) {
+            stats.dems.noTemplate++;
+            continue;
           }
-          const adapted = adaptToV2(html);
-          stats.dems.adShortcodesRemoved += adapted.removed.adShortcodes;
-          for (const tag of rendered.kept) {
+          stats.dems.adShortcodesRemoved += converted.adShortcodesRemoved;
+          for (const tag of converted.kept) {
             stats.dems.keptTags[tag] = (stats.dems.keptTags[tag] ?? 0) + 1;
           }
-          for (const tag of rendered.droppedInverted) {
+          for (const tag of converted.droppedInverted) {
             if (!stats.dems.droppedInverted.includes(tag)) {
               stats.dems.droppedInverted.push(tag);
             }
           }
           await createContent({
-            name: `${ad.campaign_name ?? 'DEM'} – ${ad.name ?? ad.id}`,
+            name: demContentName(ad),
             type: ContentType.marketing,
             category: ad.advertiser_name ?? null,
-            media: { type: 'dem', id: ad.id, product: product.uid, format: ad.format, campaignId: ad.campaign_id, adGroupId: ad.ad_group_id, partner: ad.partner_name ?? null, tsClick: ad.ts_click_field ? { field: ad.ts_click_field, value: ad.ts_click_value } : null },
-            version: { html: adapted.html, subject, previewText, senderName }
+            media: demMediaConfig(ad, product),
+            version: { html: converted.html, subject: converted.subject, previewText: converted.previewText, senderName: converted.senderName }
           });
           stats.dems.created++;
         }
@@ -476,4 +592,22 @@ const migrateContentsFromMedia = async (options) => {
   }
 };
 
-module.exports = { migrateContentsFromMedia, renderKeeping, adaptToV2, insertHeaderFooter, resume, ARTICLE_TEMPLATE_HTML, PASSTHROUGH_ROOTS_V2 };
+module.exports = {
+  migrateContentsFromMedia,
+  renderKeeping,
+  adaptToV2,
+  insertHeaderFooter,
+  resume,
+  loadDemAds,
+  adTargetsProduct,
+  demProductContext,
+  convertDem,
+  addParameterToUrl,
+  replaceHrefs,
+  demContentName,
+  demMediaConfig,
+  productSettings,
+  isOn,
+  ARTICLE_TEMPLATE_HTML,
+  PASSTHROUGH_ROOTS_V2
+};

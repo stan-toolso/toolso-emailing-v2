@@ -109,7 +109,7 @@ test('simulation puis reprise des articles et des DEM du produit guide', async (
   const { Content, ContentVersion, ContentTemplate } = sequelize.models;
   const dry = await media.migrateContentsFromMedia({ sequelize, source, ads, products: ['guide'], dryRun: true });
   expect(dry.articles).toMatchObject({ read: 2, created: 2, existing: 0, withoutImage: 0 });
-  expect(dry.dems).toMatchObject({ read: 5, otherProduct: 1, disabled: 2, created: 2, existing: 0, noTemplate: 0 });
+  expect(dry.dems).toMatchObject({ read: 4, otherProduct: 0, disabled: 2, created: 2, existing: 0, noTemplate: 0 });
   expect(await Content.count()).toBe(0);
   expect(await ContentTemplate.count()).toBe(0);
 
@@ -118,7 +118,7 @@ test('simulation puis reprise des articles et des DEM du produit guide', async (
     products: ['guide'],
     templates: { created: 1, reused: 0 },
     articles: { read: 2, created: 2, existing: 0, withoutImage: 0 },
-    dems: { read: 5, otherProduct: 1, disabled: 2, created: 2, adShortcodesRemoved: 2, droppedInverted: [] }
+    dems: { read: 4, otherProduct: 0, disabled: 2, created: 2, adShortcodesRemoved: 2, droppedInverted: [] }
   });
   expect(stats.dems.keptTags).toMatchObject({ 'contact.firstname': 2, now: 1, 'contact.fields.ville': 1 });
 
@@ -169,13 +169,13 @@ test('simulation puis reprise des articles et des DEM du produit guide', async (
   expect(demHtml.config.media).toMatchObject({ type: 'dem', id: 1, product: 'guide', format: 'dem', campaignId: 1, adGroupId: 1, partner: 'Partenaire', tsClick: { field: 'sub', value: '{{contact.id}}' } });
   const demHtmlVersion = await ContentVersion.findByPk(demHtml.defaultVersionId);
   expect(demHtmlVersion).toMatchObject({ subject: 'Offre', senderName: 'Exp', previewText: 'Pré', contentTemplateId: null });
-  expect(demHtmlVersion.html).toBe('<html><body>\n<div id="hdr">H</div><p>Bonjour {{contact.firstname}}, Titre A <a href="https:&#x2F;&#x2F;adv.example.com&#x2F;?e&#x3D;{{contact.email}}">go</a>  {{#now}}DD/MM{{/now}} {{contact.customFields.ville}} </p><div id="ftr">F</div>\n</body></html>');
+  expect(demHtmlVersion.html).toBe('<html><body>\n<div id="hdr">H</div><p>Bonjour {{contact.firstname}}, Titre A <a href="https:&#x2F;&#x2F;adv.example.com&#x2F;?e&#x3D;{{contact.email}}&sub={{contact.id}}">go</a>  {{#now}}DD/MM{{/now}} {{contact.customFields.ville}} </p><div id="ftr">F</div>\n</body></html>');
 
   const demTemplate = await Content.findOne({ where: { name: 'Campagne A – DEM gabarit' } });
   const demTemplateVersion = await ContentVersion.findByPk(demTemplate.defaultVersionId);
   expect(demTemplate.config.media).toMatchObject({ type: 'dem', id: 2, format: 'dem_template' });
   expect(demTemplateVersion).toMatchObject({ subject: 'Promo', previewText: 'PT', senderName: 'Le Guide' });
-  expect(demTemplateVersion.html).toBe('<html><body><h1>Promo</h1><a href="https://adv.example.com/promo"><img src="https://guide.example.com/ads/1/imgs/promo.webp"></a> Bonjour {{contact.firstname}} </body></html>');
+  expect(demTemplateVersion.html).toBe('<html><body><h1>Promo</h1><a href="https://adv.example.com/promo?sub={{contact.id}}"><img src="https://guide.example.com/ads/1/imgs/promo.webp"></a> Bonjour {{contact.firstname}} </body></html>');
 
   // idempotence
   const again = await media.migrateContentsFromMedia({ sequelize, source, ads, products: ['guide'] });

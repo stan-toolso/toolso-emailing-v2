@@ -182,6 +182,22 @@ require_aws() {
 aws_secret_json() {
   aws_cli secretsmanager get-secret-value --secret-id "$1" --query SecretString --output text
 }
+# pg_url_from_secret nom [hôte] : affiche postgres://user:mdp@hôte:port/base à partir d'un secret Secrets Manager au format
+# RDS (host, port, database|dbname, username|user, password ; identifiants encodés pour l'URL). L'hôte peut être remplacé
+# (ex. cluster au lieu d'un proxy RDS injoignable hors VPC). Sur stderr : « hôte:port/base », jamais les identifiants.
+# À capturer dans une variable, jamais à afficher.
+pg_url_from_secret() {
+  local name="$1" host_override="${2:-}" json host port db user pass
+  json="$(aws_secret_json "$name")" || { warn "Lecture du secret $name impossible (région $AWS_REGION, droit secretsmanager:GetSecretValue ?)."; return 1; }
+  host="$(jq -r '.host // empty' <<<"$json")"; port="$(jq -r '.port // 5432' <<<"$json")"
+  db="$(jq -r '.database // .dbname // empty' <<<"$json")"; user="$(jq -r '.username // .user // empty | @uri' <<<"$json")"
+  pass="$(jq -r '.password // empty | @uri' <<<"$json")"
+  unset json
+  [[ -z "$host_override" ]] || host="$host_override"
+  [[ -n "$host" && -n "$db" && -n "$user" && -n "$pass" ]] || { warn "Secret $name incomplet (host, database, username, password attendus)."; return 1; }
+  printf '%s:%s/%s\n' "$host" "$port" "$db" >&2
+  printf 'postgres://%s:%s@%s:%s/%s' "$user" "$pass" "$host" "$port" "$db"
+}
 
 # ---------- gabarits ----------
 # render_template fichier CLÉ=VALEUR… : remplace chaque {{CLÉ}} par sa valeur et affiche le résultat.
