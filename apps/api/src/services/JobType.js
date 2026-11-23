@@ -21,5 +21,6 @@ module.exports = Object.freeze({
   build_model: 'build_model',
   check_schedules_missing_contents: 'check_schedules_missing_contents',
   update_contents_stats_table: 'update_contents_stats_table',
+  media_campaigns_import: 'media_campaigns_import',
   sync_media_statuses: 'sync_media_statuses'
 });

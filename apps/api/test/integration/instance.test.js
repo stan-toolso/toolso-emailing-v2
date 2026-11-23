@@ -235,7 +235,7 @@ test('scheduler : le verrou PostgreSQL empêche deux exécutions simultanées du
   expect(schedules.find((schedule) => schedule.job === 'check_schedules_to_send').cron).toBe('* * * * *');
   expect(schedules.find((schedule) => schedule.job === 'update_contents_scores')).toBeUndefined();
   expect(schedules.find((schedule) => schedule.job === '_comment')).toBeUndefined();
-  expect(schedules.length).toBe(21);
+  expect(schedules.length).toBe(22);
 
   const runJob = require('../../src/jobs/runJob');
   const original = runJob.runJob;

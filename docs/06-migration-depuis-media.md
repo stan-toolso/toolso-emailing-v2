@@ -48,7 +48,7 @@ rattacher à une planification dans l'UI.
 | media | v2 | Règles |
 |---|---|---|
 | `article` du produit (`status = published`, `distribution_settings.emailing_enabled` ≠ false ; `--all-articles` pour tout, `--since-days N` pour les récents) | `Content` type `newsletter` + `ContentVersion` rattachée au `ContentTemplate` « Article – <produit> » | Le gabarit est créé une fois par produit (HTML générique : en-tête, image, titre, résumé, bouton « Lire l'article », pied avec `{{{unsubLink}}}` et `{{{mirrorLink}}}`) : le modifier dans l'UI change tous les articles repris. Les données sont dans `templateVariables` : `content.title`, `content.subject` (`email_subject` sinon titre), `content.preview_text`, `content.link` (`link`, champ personnalisé `articleLinkCustomField`, `url`, sinon `siteUrl/slug`), `content.cta_url`, `content.short_resume` / `long_resume` (texte, 100 / 200 caractères comme media), `content.description`, `content.body` (HTML complet de l'article), `content.image_url` / `image_w400` (`imgBaseUrl` ou `siteUrl` + `/imgs/max|400x400/<slug>.webp`, sinon `featured_image.url`), `content.categories`, `content.customs`, `content.site_url`, `content.product_name`. `Content.category` = première catégorie media |
-| `ad` de format `dem` (base **ads**, secret `toolso-ads`) dont le groupe cible le produit (`ad_group.support_settings.productIds`, vide = tous) et dont publicité, groupe et campagne sont actifs (`--include-disabled` sinon) | `Content` type `marketing` | HTML = `ad.content.html` rendu avec `ad.*`, `ad_group.*`, `campaign.*`, `product.*` résolus, encadré par `settings.header` / `settings.footer` de la version active du contenu media de type `dem` ; sujet, nom d'expéditeur et pré-en-tête de la publicité. `Content.category` = annonceur ; `config.media` garde campagne, groupe, partenaire et paramètre de clic partenaire (`ts_click_field`, non appliqué) |
+| `ad` de format `dem` (base **ads**, secret `toolso-ads`) dont le groupe cible le produit (`ad_group.support_settings.productIds`, vide = tous) et dont publicité, groupe et campagne sont actifs (`--include-disabled` sinon) | `Content` type `marketing` | HTML = `ad.content.html` rendu avec `ad.*`, `ad_group.*`, `campaign.*`, `product.*` résolus, encadré par `settings.header` / `settings.footer` de la version active du contenu media de type `dem` ; sujet, nom d'expéditeur et pré-en-tête de la publicité. `Content.category` = annonceur ; `config.media` garde campagne, groupe, partenaire et paramètre de clic partenaire. Comme media, le paramètre du partenaire (`ts_click_field=ts_click_value`) est ajouté à chaque lien, sauf s'il dépend de l'identifiant de clic `tsclid` (généré par la redirection media, sans équivalent v2) |
 | `ad` de format `dem_template` | `Content` type `marketing` | gabarit = version active du contenu media de type `dem_template` du produit, rendu avec `ad.*` (contenu, `ad.link` = destination, `ad.image.src` absolu via `emailingRedirectionLink`) ; sans gabarit actif, la publicité est comptée `noTemplate` |
 
 Rendu partiel (`renderKeeping`) : seules les variables propres à media sont résolues ; `{{contact.*}}`, `{{unsubLink}}`,
@@ -268,3 +268,83 @@ Mesures (produit pilote, ~7 200 contacts, 6 400 événements d'historique, base 
 | `apps/api/src/migration/mediaContents.js` | gabarit d'article, rendu partiel Mustache, règles DEM ; test `test/integration/migrate-contents-from-media.test.js` (schéma ads de test : `test/fixtures/ads-schema.sql`) |
 | `… --sync-statuses [--product <p>] [--dry-run] [--full] [--no-new-contacts] [--no-recalculate] [--email-flags-days N] [--show-cursor]` | transition : statuts, blacklist, réinscriptions, nouveaux contacts media → v2 (job `sync_media_statuses` si `MEDIA_STATUS_SYNC=1`) |
 | `apps/api/src/migration/mediaStatusSync.js`, `apps/api/scripts/sync-statuses-from-media.js` | synchronisation ; test `test/integration/sync-statuses-from-media.test.js` |
+| `deploy/bin/set-media-source.sh <uid> --media-instance <nom> --product <p> [--ads-secret <s> [--ads-host <h>]] \| --check \| --unset` | source media de l'instance (`MEDIA_DATABASE_URL`, `MEDIA_PRODUCTS`, `ADS_DATABASE_URL` dans son `.env`), § 7 |
+| job `media_campaigns_import` (scheduler, toutes les heures) ; `apps/api/scripts/import-media-campaigns.js [--dry-run]` | import régulier des campagnes DEM (§ 7) ; règles dans `apps/api/src/migration/mediaCampaigns.js`, test `test/integration/media-campaigns-import.test.js` |
+
+## 7. Transition : import régulier des campagnes (DEM) et source media de l'instance
+
+Tant que les campagnes sont gérées dans toolso-ads (base commune à tous les sites media), chaque instance issue d'un
+produit media importe elle-même les DEM disponibles pour ce produit : les sites basculés et les sites témoins restés sur
+media reçoivent ainsi les mêmes campagnes.
+
+### Source media de l'instance
+
+Convention commune aux jobs de transition (import des campagnes, synchronisation des statuts…) : trois variables dans le
+`.env` de l'instance (mode 600), écrites par `set-media-source.sh` à partir des secrets AWS (rien n'est affiché) :
+
+| Variable | Contenu |
+|---|---|
+| `MEDIA_DATABASE_URL` | base media (secret `media-<instance media>`), `?sslmode=no-verify` par défaut |
+| `MEDIA_PRODUCTS` | uid(s) du ou des produits media de l'instance, séparés par des virgules |
+| `ADS_DATABASE_URL` | base ads (secret `--ads-secret`, hôte remplacé par `--ads-host` : le proxy RDS n'est joignable que dans le VPC AWS) |
+
+```bash
+sudo bin/set-media-source.sh <uid> --media-instance <nom> --product <produit> \
+  --ads-secret toolso-ads-readonly --ads-host <cluster de la base ads>   # recrée les conteneurs de l'instance
+sudo bin/set-media-source.sh <uid> --check     # hôtes et produits (identifiants masqués)
+sudo bin/set-media-source.sh <uid> --unset     # fin de la transition : les jobs ne font plus rien
+```
+
+Les connexions sont ouvertes en lecture seule (`default_transaction_read_only`), mais le compte du secret peut avoir plus
+de droits : préférer un compte réellement en lecture seule quand il existe.
+
+### Job `media_campaigns_import`
+
+Planifié **toutes les heures** (`25 * * * *` UTC, `config/schedules.json`) dans le scheduler de l'instance (verrou
+PostgreSQL, journal de l'instance, configuration de son `.env`), plutôt qu'un cron hôte : rien à installer par instance,
+et il ne fait rien sans les trois variables ci-dessus. Horaire plutôt que quotidien : media choisit la publicité au moment
+de chaque envoi ; une campagne coupée dans toolso-ads est ainsi désactivée dans l'heure. Désactivation : `JOBS_DISABLED=media_campaigns_import`.
+
+À chaque passage, pour les publicités `dem` / `dem_template` qui ciblent un produit de `MEDIA_PRODUCTS` :
+
+| Publicité dans media | Contenu v2 |
+|---|---|
+| disponible (règles ci-dessous), jamais importée | `Content` marketing **actif** créé (HTML converti comme en § 1 bis) |
+| disponible, déjà importée (ou reprise par `--contents`) | mis à jour si le HTML, l'objet, les filtres… ont changé ; réactivé (sauf contenu suspendu par la v2) |
+| plus disponible (désactivée, archivée, terminée, hors période, plafond quotidien atteint…) | désactivé |
+| supprimée ou ne ciblant plus le produit | désactivé |
+| jamais disponible | pas importée |
+
+Règles de disponibilité reprises de media (`AdService` filtre `available` + `bestAd`, heure de Paris) : publicité
+`enabled` et de statut `active` / `learning` / `limited` ; groupe `enabled` et `active` ; campagne `enabled` ; annonceur du
+client (paramètre media `advertisers`) ou campagne `public` d'un autre annonceur ; période `distribution_settings.period`
+(MM-JJ, à cheval sur l'année possible), `start` et `end` ; `ad_group.support_settings.productIds` ; `ad.support_settings.slotNames` ;
+`daily_capping_requests` comparé à `ad_group.today_requests`.
+
+Traduits en réglages v2 : jours de diffusion (`distribution_settings.days`) → filtre de contenu `daysInclude` ; audience du
+groupe (`audience_settings` : âge, sexe, préfixes de code postal, date de naissance, ESP, champ du contact, arbres `and`)
+→ `Content.config.filters` ; `weight` → `config.weight` ; `end` → `Content.endDate`. Sans équivalent : plafonds totaux
+(`capping_requests`, `capping_impressions`, `capping_clicks`) et plafonds quotidiens de clics / impressions, calculés par
+media sur ses statistiques (compte rendu `unsupported`, la publicité reste active) ; audience non traduisible (`or` à
+plusieurs branches, `email_status`) : contenu créé **inactif** (`unavailable.audience`), à régler à la main.
+
+**utm** : media ne calcule pas les utm, ils sont écrits dans les liens des publicités :
+`utm_campaign={{campaign.id}}-{{ad_group.id}}-{{ad.id}}&utm_source={{product.uid}}` (relevé du 23/11/2026 : 558 liens sur
+676 portant un `utm_campaign`, les autres sont des valeurs fixes de l'annonceur). La conversion les résout avec les mêmes
+valeurs que media à l'envoi (identifiants media, uid du produit media), par exemple `utm_campaign=3631-59640-59838&utm_source=<produit>`.
+Ce que media ajoute à la redirection d'un clic (`tsclid`) n'est pas reproduit.
+
+Mode d'envoi (`MEDIA_CAMPAIGNS_SCHEDULES` dans le `.env`) : `none` (défaut) = **sans envoi**, les contenus sont créés et
+tenus à jour mais rattachés à aucune planification (avant la bascule) ; `<id>[,<id>…]` = chaque contenu importé est
+rattaché à ces planifications v2 (créneaux DEM), à régler le jour de la bascule.
+
+Garde-fous : un contenu dont `config.media.manual` vaut `true` n'est plus touché par l'import (repris à la main) ;
+`config.media.sync` garde l'empreinte, la date, la disponibilité et les raisons du dernier passage.
+
+```bash
+# simulation (transaction annulée), compte rendu JSON avec quelques contenus et leurs utm
+bin/compose.sh <uid> run --rm --no-deps api node scripts/import-media-campaigns.js --dry-run --samples 10
+# passage réel immédiat (sinon : à la prochaine heure)
+bin/compose.sh <uid> run --rm --no-deps api node scripts/run-job.js media_campaigns_import
+bin/psql.sh <uid> -c "SELECT \"isActive\", count(*) FROM \"Content\" WHERE config->'media'->>'type' = 'dem' GROUP BY 1"
+```
