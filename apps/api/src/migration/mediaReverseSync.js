@@ -146,7 +146,14 @@ const syncStatusesToMedia = async (options) => {
     for (const { mc, event, target } of plan) {
       stats.byStatus[target] = (stats.byStatus[target] ?? 0) + 1;
       if (stats.samples.length < sampleSize) {
-        stats.samples.push({ mediaContactId: mc.id, product: products.find((p) => p.id === mc.product_id)?.uid, from: mc.email_status, to: target, v2EventId: event.id, date: new Date(event.date).toISOString() });
+        stats.samples.push({
+          mediaContactId: mc.id,
+          product: products.find((p) => p.id === mc.product_id)?.uid,
+          from: mc.email_status,
+          to: target,
+          v2EventId: event.id,
+          date: new Date(event.date).toISOString()
+        });
       }
     }
     if (!apply || plan.length === 0) {
@@ -161,10 +168,13 @@ const syncStatusesToMedia = async (options) => {
           stats.contacts.conflicts++;
           continue;
         }
-        await source.query(
-          `INSERT INTO contact_history (product_id, contact_id, type, details, date, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, now(), now())`,
-          [mc.product_id, mc.id, `emailing_${event.type}`, JSON.stringify({ origin: ORIGIN, instance, v2EventId: event.id, previousStatus: mc.email_status }), event.date]
-        );
+        await source.query(`INSERT INTO contact_history (product_id, contact_id, type, details, date, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, now(), now())`, [
+          mc.product_id,
+          mc.id,
+          `emailing_${event.type}`,
+          JSON.stringify({ origin: ORIGIN, instance, v2EventId: event.id, previousStatus: mc.email_status }),
+          event.date
+        ]);
         const del = await source.query('DELETE FROM email WHERE contact_id = $1 AND done = false', [mc.id]);
         stats.contacts.scheduledEmailsDeleted += del.rowCount;
         stats.contacts.updated++;
@@ -202,10 +212,10 @@ const listInscriptions = async ({ sequelize, source, productIds, since }) => {
   const statusOf = new Map();
   for (let i = 0; i < result.length; i += 1000) {
     const batch = result.slice(i, i + 1000).map((r) => r.email);
-    const { rows: found } = await source.query(
-      `SELECT lower(trim(email)) AS email, email_status FROM contact WHERE product_id = ANY($1::int[]) AND lower(trim(email)) = ANY($2::text[])`,
-      [productIds, batch]
-    );
+    const { rows: found } = await source.query(`SELECT lower(trim(email)) AS email, email_status FROM contact WHERE product_id = ANY($1::int[]) AND lower(trim(email)) = ANY($2::text[])`, [
+      productIds,
+      batch
+    ]);
     for (const f of found) {
       // plusieurs produits : on garde le statut le moins bloquant
       if (!statusOf.has(f.email) || rankOf(f.email_status) < rankOf(statusOf.get(f.email))) {

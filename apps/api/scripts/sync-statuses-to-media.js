@@ -19,7 +19,9 @@ const media = require('../src/migration/mediaDatabase');
 const reverse = require('../src/migration/mediaReverseSync');
 
 const usage = () => {
-  console.error('Usage : MEDIA_DATABASE_URL=postgres://… node scripts/sync-statuses-to-media.js --product <uid>[,<uid>…] --since <AAAA-MM-JJ[THH:MM]> [--apply] [--batch-size 1000] [--inscriptions-csv]');
+  console.error(
+    'Usage : MEDIA_DATABASE_URL=postgres://… node scripts/sync-statuses-to-media.js --product <uid>[,<uid>…] --since <AAAA-MM-JJ[THH:MM]> [--apply] [--batch-size 1000] [--inscriptions-csv]'
+  );
   process.exit(2);
 };
 
@@ -44,12 +46,15 @@ if (values.help) {
   usage();
 }
 const sourceUrl = process.env.MEDIA_DATABASE_URL;
-const products = (values.product ?? []).flatMap((p) => p.split(',')).map((p) => p.trim()).filter(Boolean);
+const products = (values.product ?? [])
+  .flatMap((p) => p.split(','))
+  .map((p) => p.trim())
+  .filter(Boolean);
 const timezone = values.timezone || process.env.TZ || 'Europe/Paris';
 const sinceMoment = values.since ? moment.tz(values.since, ['YYYY-MM-DD', 'YYYY-MM-DDTHH:mm', 'YYYY-MM-DD HH:mm', moment.ISO_8601], true, timezone) : null;
 const batchSize = parseInt(values['batch-size'], 10);
 if (!sourceUrl || products.length === 0 || !sinceMoment || !sinceMoment.isValid() || isNaN(batchSize) || batchSize < 1) {
-  console.error('MEDIA_DATABASE_URL, --product et --since (date de bascule, fuseau de l\'instance) sont obligatoires.');
+  console.error("MEDIA_DATABASE_URL, --product et --since (date de bascule, fuseau de l'instance) sont obligatoires.");
   usage();
 }
 if (values.apply && values['inscriptions-csv']) {

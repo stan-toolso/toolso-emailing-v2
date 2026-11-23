@@ -44,14 +44,15 @@ const seedSource = async () => {
       `INSERT INTO contact (email, product_id, email_status, stats, created_at, updated_at) VALUES ($1, $2, $3, '{"emailing":{"request":2,"open":1}}', now() - interval '200 days', now() - interval '100 days') RETURNING id`,
       [email, productId, status]
     );
-    await q(`INSERT INTO inscription (contact_id, product_id, contact_source_id, inscripted_at, email, is_new, created_at, updated_at) VALUES ($1, $2, $2, now() - interval '200 days', $3, true, now(), now())`, [
-      rows[0].id,
-      productId,
-      email
-    ]);
+    await q(
+      `INSERT INTO inscription (contact_id, product_id, contact_source_id, inscripted_at, email, is_new, created_at, updated_at) VALUES ($1, $2, $2, now() - interval '200 days', $3, true, now(), now())`,
+      [rows[0].id, productId, email]
+    );
   }
   // envoi programmé non parti d'alice (doit être supprimé), envoi passé (conservé)
-  await q(`INSERT INTO email (contact_id, product_id, message_id, schedule_at, sent, done, created_at, updated_at) VALUES (1, 1, 'pending-a', now() + interval '1 day', false, false, now(), now()), (1, 1, 'sent-a', now() - interval '30 days', true, true, now(), now())`);
+  await q(
+    `INSERT INTO email (contact_id, product_id, message_id, schedule_at, sent, done, created_at, updated_at) VALUES (1, 1, 'pending-a', now() + interval '1 day', false, false, now(), now()), (1, 1, 'sent-a', now() - interval '30 days', true, true, now(), now())`
+  );
 };
 
 const v2Contact = async (email) => sequelizeModule.get().models.Contact.findOne({ where: { email } });
