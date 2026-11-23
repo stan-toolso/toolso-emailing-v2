@@ -13,7 +13,7 @@ COPY config ./config
 COPY views ./views
 COPY src ./src
 COPY scripts/sync-model.js scripts/run-job.js scripts/queue-status.js scripts/import-mirrors.js scripts/enqueue-actions.js \
-     scripts/migrate-from-media.js scripts/migrate-contents-from-media.js ./scripts/
+     scripts/migrate-from-media.js scripts/migrate-contents-from-media.js scripts/sync-statuses-from-media.js ./scripts/
 USER node
 EXPOSE 4001
 VOLUME ["/data/files"]

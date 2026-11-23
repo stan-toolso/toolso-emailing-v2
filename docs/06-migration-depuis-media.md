@@ -198,6 +198,61 @@ pas repris. Ordre conseillé :
 - **Secret du README media** : le dépôt toolso-media contient un jeton GitLab en clair (`README.md`, `backend/NEW_SERVER.md`) ;
   il n'est pas utilisé ici et doit être révoqué (voir la tâche sécurité du projet).
 
+## 5 bis. Transition : synchronisation des statuts media → v2 (`--sync-statuses`, job `sync_media_statuses`)
+
+Après la bascule d'un produit, les liens de désabonnement des mails **déjà envoyés par media**, les retours de l'ESP
+(plaintes, hard bounces) et parfois de nouvelles inscriptions arrivent encore dans la base media. La reprise relancée
+n'ajoute que les nouveaux e-mails ; la synchronisation, elle, rejoue les changements dans l'instance v2. À garder active
+**au moins 60 jours** après la dernière bascule de l'instance.
+
+Ce qui est relu à chaque passage (produits de `MEDIA_PRODUCTS`, base media en lecture seule) :
+
+| Source media | Effet dans la v2 |
+|---|---|
+| `contact_history` `emailing_unsub` / `complaint` / `hard_bounce` / `contact_bounce` (id > curseur, plus recouvrement par date) | `ContactEvent` du même type |
+| `email` : drapeaux `unsubcribed`, `complainted`, `hard_bounced` des envois des 60 derniers jours modifiés depuis le dernier passage | `ContactEvent` (filet de sécurité : media écrit normalement aussi l'historique) |
+| `contact.email_status` `unsub` / `complaint` / `hard_bounce` modifié | événement « garanti » s'il manque (même règle que la reprise) |
+| `contact.email_status = blacklisted` | `Contact.status = blacklisted` |
+| `blacklisted_contact` (globale) modifiée | `BlacklistedContact` |
+| `inscription` d'un contact déjà présent dans la v2 | `ContactInscription` (réinscription : le contact redevient envoyable si son désabonnement est antérieur) |
+| contacts media d'id > curseur | reprise standard (`migrateFromMedia`), désactivable par `MEDIA_STATUS_SYNC_NEW_CONTACTS=0` quand le relais d'API est actif |
+
+Puis le statut des contacts touchés est **recalculé tout de suite** (`ContactStatusService`, comme le worker) : un contact
+désabonné dans media n'est plus envoyable dès la fin du passage.
+
+Règles :
+
+- rapprochement par **e-mail** normalisé (un contact créé dans la v2 par une autre voie est aussi mis à jour) ;
+- **idempotent** : chaque événement rejoué porte `details.media = { product, kind, key, date }` (clé `h:<id historique>`,
+  `e:<id envoi>:<type>`, `s:<id contact>:<statut>`) ; un événement avec la même clé, ou du même type à moins de 10 minutes
+  (événements créés par la reprise), n'est pas recréé ; relancer un passage ou un rattrapage complet (`--full`) ne crée
+  rien en double ;
+- un désabonnement **antérieur à la dernière inscription v2** est ignoré (compté `stale`) : il ne compte pas dans la v2 ;
+- date de l'événement : la date media, sauf si elle précède le dernier événement déjà intégré au cache `ContactEvents` du
+  contact (le recalcul ne relit que les événements postérieurs) : l'événement est alors daté du passage, la date media
+  restant dans `details.media.date` et `requestDate` ;
+- **curseur** : ligne `Settings` `mediaStatusSync` (JSON : par produit dernier id d'historique et de contact lus, date du
+  dernier passage, compteurs du dernier passage). Les lectures par date reprennent 60 minutes avant le dernier passage.
+  Sans curseur (premier passage), tout est relu : rattrapage complet, sans doublon.
+
+Activation (une fois par instance, après la bascule) :
+
+```bash
+# source et produits : écrits par bin/set-media-source.sh (MEDIA_DATABASE_URL, MEDIA_PRODUCTS dans le .env de l'instance)
+sudo bin/migrate-from-media.sh <uid> --sync-statuses --dry-run     # simulation (transaction annulée, curseur inchangé)
+sudo bin/migrate-from-media.sh <uid> --sync-statuses               # premier passage (rattrapage complet)
+sudo sh -c 'echo MEDIA_STATUS_SYNC=1 >> instances/<uid>/.env' && sudo bin/compose.sh <uid> up -d scheduler
+sudo bin/migrate-from-media.sh <uid> --sync-statuses --show-cursor  # dernier passage et ses compteurs
+```
+
+Le job `sync_media_statuses` tourne alors **toutes les heures** (minute 25, `config/schedules.json`) dans le scheduler de
+l'instance, sous le verrou du scheduler (le script manuel prend le même verrou). Désactivation : retirer
+`MEDIA_STATUS_SYNC` (ou `JOBS_DISABLED=sync_media_statuses`) puis redémarrer le scheduler. Sans `MEDIA_STATUS_SYNC=1`, le job
+ne fait rien.
+
+Mesures (produit pilote, ~7 200 contacts, 6 400 événements d'historique, base media distante) : rattrapage complet 2 min 20
+(0 doublon après la reprise), passage incrémental 3,5 s.
+
 ## 6. Référence rapide
 
 | Commande | Rôle |
@@ -211,3 +266,5 @@ pas repris. Ordre conseillé :
 | `… --product <p> --contents [--articles-only \| --dems-only] [--ads-secret toolso-ads [--ads-host <cluster>] \| --ads-url <url>] [--all-articles] [--include-disabled] [--since-days N] [--dry-run]` | articles et DEM → contenus v2 inactifs |
 | `apps/api/scripts/migrate-contents-from-media.js` (`MEDIA_DATABASE_URL`, `ADS_DATABASE_URL`) | conversion des contenus |
 | `apps/api/src/migration/mediaContents.js` | gabarit d'article, rendu partiel Mustache, règles DEM ; test `test/integration/migrate-contents-from-media.test.js` (schéma ads de test : `test/fixtures/ads-schema.sql`) |
+| `… --sync-statuses [--product <p>] [--dry-run] [--full] [--no-new-contacts] [--no-recalculate] [--email-flags-days N] [--show-cursor]` | transition : statuts, blacklist, réinscriptions, nouveaux contacts media → v2 (job `sync_media_statuses` si `MEDIA_STATUS_SYNC=1`) |
+| `apps/api/src/migration/mediaStatusSync.js`, `apps/api/scripts/sync-statuses-from-media.js` | synchronisation ; test `test/integration/sync-statuses-from-media.test.js` |

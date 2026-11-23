@@ -25,7 +25,8 @@ const jobs = {
   [JobType.update_adsense_incomes_today]: async () => require('../services/jobs/update_adsense_incomes')(moment.tz((await getCachedSettings(['timezone'])).timezone)),
   [JobType.build_model]: () => require('../services/jobs/build_model')(sequelize.get()),
   [JobType.check_schedules_missing_contents]: () => require('../services/jobs/check_schedules_missing_contents')(),
-  [JobType.update_contents_stats_table]: () => require('../services/jobs/update_contents_stats_table')()
+  [JobType.update_contents_stats_table]: () => require('../services/jobs/update_contents_stats_table')(),
+  [JobType.sync_media_statuses]: () => require('../services/jobs/sync_media_statuses')()
 };
 
 /**
