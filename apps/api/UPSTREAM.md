@@ -16,7 +16,7 @@ Seuls les adaptateurs d'infrastructure changent. Ce document liste chaque écart
 | EventBridge → `toolso-access/emailing_jobs` → Lambda `{uid}_job` (`handlers/job.js`) | `ROLE=scheduler` : `src/entrypoints/scheduler.js` (croner) + `config/schedules.json` (fréquences relevées sur AWS), verrou `pg_try_advisory_lock` par job, exécution par `src/jobs/runJob.js` |
 | Lambda `{uid}_ses_webhook` (`handlers/ses_webhook.js`) | `src/api/webhooks/webhookHandlers.js` (même code, entrée `handleWebhook(router, body)`) ; routes `POST /webhooks/{ses,sib,toolso}` + alias `/ses`, `/sib`, `/toolso` |
 | Lambdas `tracking_api` (lk.*), `track_events`, `mirror_api` (hors dépôt, récupérées depuis le compte AWS) | `src/api/tracking/trackingRoutes.js` (`/tk/v1`, `/tkc/v1`, `/tko/v1`, `/unsub`, `/m/:mirrorId`), consommateur `track_event`, vues `views/tracking/` ; plainte FBL : `POST /webhooks/fbl` (`fblComplaintHandler.js`) |
-| `sendinblue_webhook` (dispatch par tag `tls_<uid>`) | sans objet : une base par instance, Brevo appelle directement `/api/<uid>/webhooks/sib` |
+| `sendinblue_webhook` (dispatch par tag `tls_<uid>`) | une base par instance, Brevo appelle directement `/api/<uid>/webhooks/sib` ; `handleSibEvent` ignore un événement étiqueté sans `tls_<RESOURCE_UID>` (compte Brevo partagé entre instances et toolso-media) |
 | `src/main.js` | nouveau : entrée unique (`ROLE` = api / worker / scheduler / all), arrêt propre sur SIGTERM |
 
 ## Services AWS remplacés
@@ -54,6 +54,7 @@ Seuls les adaptateurs d'infrastructure changent. Ce document liste chaque écart
 - `ContactStatusService.js` : le comportement câblé sur un `RESOURCE_UID` précis devient l'option `CONTACT_EVENTS_IGNORE_LAST_IMPORTED_ID=true`.
 - Données de test, exemples de documentation et tests Cypress : plus aucun nom de client, identifiant de compte ni adresse personnelle.
 - `api/middlewares/ApiKeyMiddleware.js` : une clé dont `permissions.scope` vaut `media-compat` (clés reprises de toolso-media) n'authentifie que les routes `/v1/…` de l'API de transition.
+- Webhook Brevo (`handleSibEvent`) : un événement qui porte des étiquettes mais pas `tls_<RESOURCE_UID>` est ignoré (remplace le tri du répartiteur v1 ; sans étiquette, inchangé).
 - `ToolsoRouter.js` : un commentaire contenant des identifiants AWS (clé `AKIA…` d'un compte client) a été **supprimé** ; ces clés doivent être révoquées côté AWS.
 
 ## Scripts
@@ -63,6 +64,7 @@ Les scripts d'exploitation de la v1 (`scripts/do_*.js`, liés à AWS et à des b
 Migration depuis AWS (appelés par `deploy/bin/migrate-mirrors.sh` et `deploy/bin/replay-sqs-actions.sh`, voir `docs/05-migration-depuis-aws.md`) :
 - `import-mirrors.js --dir <pages> [--bodies-dir <corps S3>]` : import des items DynamoDB `toolso-emailing-mirrors` (JSON du CLI ou NDJSON) dans la table `Mirror`, upsert. La conversion est dans `src/migration/dynamoMirror.js` : en v1, `CompressedBody` était le **texte base64** du deflate (`zlib.deflateSync(html).toString('base64')` passé à un attribut binaire), donc doublement encodé à la lecture par le CLI ; au-delà de 990 octets il était retiré de l'item et le même texte écrit dans S3 `toolso-emailing-mirror-body` sous la clé `mirrorId` (seulement si le mail contenait le lien miroir). La table `Mirror` stocke le deflate brut.
 - `import-media-campaigns.js [--dry-run]` et job planifié `media_campaigns_import` (nouveau, horaire) : import des campagnes DEM de toolso-ads en contenus actifs pendant la transition depuis toolso-media (`src/migration/mediaCampaigns.js`, `docs/06-migration-depuis-media.md` § 7) ; sans `MEDIA_DATABASE_URL` / `ADS_DATABASE_URL` / `MEDIA_PRODUCTS`, il ne fait rien.
+- `migrate-sending-from-media.js` (`--senders --slots` de `deploy/bin/migrate-from-media.sh`) : expéditeurs, routeurs sans identifiants, configurations d'envoi et créneaux media → planifications désactivées (`src/migration/mediaSending.js`, `docs/06` § 10) ; `set-mail-router-credentials.js` : identifiants d'un routeur lus sur l'entrée standard et chiffrés comme par l'UI.
 - `enqueue-actions.js --file <ndjson>` : insère dans `ActionQueue` des actions `{ type, payload }` ou des messages SQS bruts (`Body`), format identique entre la file SQS `actions_<uid>` de la v1 et la v2.
 
 ## Ajouts

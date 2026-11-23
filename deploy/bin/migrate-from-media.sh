@@ -18,6 +18,10 @@
 #                                                                                      contacts survenus dans media (même
 #                                                                                      traitement que le job sync_media_statuses)
 #   sudo bin/migrate-from-media.sh <uid> --sync-statuses --show-cursor               dernier passage (curseur, compteurs)
+#   sudo bin/migrate-from-media.sh <uid> --product <p> --senders --slots [--slot-time …] [--dry-run] [source]
+#                                                                                      expéditeurs (routeurs SANS identifiants),
+#                                                                                      configurations d'envoi, créneaux → planifications
+#                                                                                      créées DÉSACTIVÉES (docs/06 § 10)
 # Source (une des deux formes) :
 #   --source-url postgres://user:mdp@hôte:5432/base    (ou variable MEDIA_DATABASE_URL déjà exportée)
 #   --media-instance <nom>   secret AWS Secrets Manager « media-<nom> » (un secret par base media, noms dans backend/build/update_model_all.js du dépôt media),
@@ -32,6 +36,10 @@
 #   MEDIA_PRODUCTS, écrits par bin/set-media-source.sh) ; --email-flags-days N (envois media relus pour leurs drapeaux,
 #   défaut 60), --no-recalculate (laisser le recalcul des statuts au job scan_contact_to_update_status). Job planifié
 #   toutes les heures quand MEDIA_STATUS_SYNC=1 dans ce .env (voir docs/06-migration-depuis-media.md).
+# Options envoi : --senders (expéditeurs, routeurs, configurations d'envoi), --slots (créneaux ; les deux ensemble en général),
+#   --slot-time HH:MM[,HH:MM…] ou <id créneau>=HH:MM[,…] (répétable : heure fixe des créneaux media dont l'heure est choisie
+#   contact par contact ; défaut 09:00, puis +3 h), --tracking-domain https://lk.<domaine> (défaut : 1er de TRACKING_HOSTS).
+#   Identifiants des routeurs ensuite : bin/compose.sh <uid> run --rm -T --no-deps api node scripts/set-mail-router-credentials.js …
 # Options : --since-days N (envois repris en événements, défaut 90 ; 0 = seulement les événements de statut),
 #           --dump (pg_dump -Fc de la base media dans BACKUP_DIR/media-migration/ avant la reprise, archive),
 #           --skip-blacklist, --skip-messages, --skip-api-keys, --batch-size N, --ssl-mode <require|no-verify|disable> (défaut no-verify :
@@ -48,6 +56,7 @@ MEDIA_AWS_REGION="${MEDIA_AWS_REGION:-eu-west-3}"
 
 uid="" products="" source_url="${MEDIA_DATABASE_URL:-}" media_instance="" since_days="" batch_size="" ssl_mode="no-verify"
 ads_url="${ADS_DATABASE_URL:-}" ads_secret="" ads_host_override="" contents=0 articles_only=0 dems_only=0 all_articles=0 include_disabled=0 update_dems=0
+do_senders=0 do_slots=0 slot_times=() tracking_domain=""
 mode="migrate" do_dump=0 skip_blacklist=0 skip_messages=0 skip_api_keys=0 api_keys_only=0
 sync_statuses=0 sync_full=0 sync_no_new=0 sync_no_recalc=0 sync_cursor=0 email_flags_days=""
 while [[ $# -gt 0 ]]; do
@@ -72,6 +81,10 @@ while [[ $# -gt 0 ]]; do
     --dems-only) dems_only=1; shift ;;
     --all-articles) all_articles=1; shift ;;
     --include-disabled) include_disabled=1; shift ;;
+    --senders) do_senders=1; shift ;;
+    --slots) do_slots=1; shift ;;
+    --slot-time) slot_times+=(--slot-time "${2:-}"); shift 2 ;;
+    --tracking-domain) tracking_domain="${2:-}"; shift 2 ;;
     --update-dems) update_dems=1; shift ;;
     --list-products) mode="list"; shift ;;
     --inventory) mode="inventory"; shift ;;
@@ -82,7 +95,7 @@ while [[ $# -gt 0 ]]; do
     --skip-api-keys) skip_api_keys=1; shift ;;
     --api-keys) api_keys_only=1; shift ;;
     --yes) export ASSUME_YES=1; shift ;;
-    -h|--help) sed -n '2,41p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,49p' "$0"; exit 0 ;;
     --*) die "Option inconnue : $1" ;;
     *) [[ -z "$uid" ]] || die "Un seul identifiant de base attendu."; uid="$1"; shift ;;
   esac
@@ -214,6 +227,33 @@ run_node_contents() {
   compose_instance "$uid" run --rm --no-deps -e MEDIA_DATABASE_URL -e ADS_DATABASE_URL api node scripts/migrate-contents-from-media.js "$@"
 }
 
+run_node_sending() {
+  compose_instance "$uid" run --rm --no-deps -e MEDIA_DATABASE_URL api node scripts/migrate-sending-from-media.js "$@"
+}
+
+if [[ "$do_senders" == "1" || "$do_slots" == "1" ]]; then
+  [[ "$contents" == "0" ]] || die "--senders / --slots et --contents se lancent séparément."
+  [[ "$mode" == "migrate" || "$mode" == "dry-run" ]] || die "--senders / --slots s'utilisent avec --dry-run ou sans mode (reprise)."
+  sargs=(--product "$products" "${slot_times[@]}")
+  [[ "$do_senders" == "1" && "$do_slots" == "0" ]] && sargs+=(--senders-only)
+  [[ "$do_slots" == "1" && "$do_senders" == "0" ]] && sargs+=(--slots-only)
+  [[ -n "$tracking_domain" ]] && sargs+=(--tracking-domain "$tracking_domain")
+  if [[ "$mode" == "dry-run" ]]; then
+    run_node_sending "${sargs[@]}" --dry-run
+    exit $?
+  fi
+  warn "Expéditeurs / créneaux des produits « $products » ajoutés à emailing_$uid : routeurs SANS identifiants, planifications DÉSACTIVÉES (rien n'est envoyé)."
+  confirm "Continuer ?" || die "Abandon."
+  log_dir="${BACKUP_DIR:-/var/backups/toolso-emailing}/media-migration"
+  install -d -m 0700 "$log_dir"
+  log_file="$log_dir/sending_${uid}_$(date +%Y-%m-%d_%H%M%S).log"
+  if run_node_sending "${sargs[@]}" 2>&1 | tee "$log_file"; then
+    ok "Repris. Suite : identifiants des routeurs (credentialsToEnter ci-dessus), DNS et TLS du domaine de suivi, contenus des planifications, BAT ; activer les planifications le jour J seulement."
+    exit 0
+  fi
+  die "La reprise de la configuration d'envoi a échoué (voir $log_file)."
+fi
+
 if [[ "$api_keys_only" == "1" ]]; then
   [[ "$mode" == "migrate" || "$mode" == "dry-run" ]] || die "--api-keys s'utilise avec --dry-run ou sans mode."
   kargs=(--api-keys-only)
@@ -289,7 +329,7 @@ cat <<MSG
 $(ok "Suite :")
    - le job scan_contact_to_update_status (scheduler) recalcule le statut et le score des contacts repris dans les heures qui suivent
      (à la main : bin/compose.sh $uid run --rm --no-deps api node scripts/run-job.js scan_contact_to_update_status) ;
-   - recréer dans l'UI les expéditeurs et routeurs (identifiants ESP), puis les planifications ;
+   - expéditeurs, configurations d'envoi et créneaux : bin/migrate-from-media.sh $uid … --senders --slots (identifiants ESP ensuite) ;
    - rebrancher les formulaires / l'API d'inscription sur $PUBLIC_URL/api/$uid (clés API des sources reprises telles quelles) ;
    - vérifier : bin/psql.sh $uid -c 'SELECT status, count(*) FROM "Contact" GROUP BY 1'
 MSG

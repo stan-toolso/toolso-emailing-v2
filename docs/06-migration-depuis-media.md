@@ -95,12 +95,12 @@ puis activer et planifier. Les images restent hébergées sur le site media (`im
 
 ## 2. Ce qui n'est pas repris (listé par `--inventory`)
 
-- **Expéditeurs** (`email_sender` : nom, adresse, `router`, `config` avec identifiants ESP) et **configurations d'envoi**
-  (`email_sending_config`) : à recréer dans l'UI (Routeurs, Expéditeurs, Configurations d'envoi). Les identifiants ESP sont
-  chiffrés différemment des deux côtés et les routeurs media (Brevo, SES, routeur Toolso) n'ont pas les mêmes options.
-- **Newsletters dynamiques, slots, publicités natives** (`email_content` hors DEM, `email_slot*`, `[ad …]`, bannières) : le
-  modèle éditorial media (newsletter composée à l'envoi des meilleurs articles et publicités) n'a pas d'équivalent dans
-  les `Content`/`Schedule` de la v2. Les articles et les DEM sont repris un par un en contenus fixes (§ 1 bis).
+- **Identifiants ESP** des expéditeurs media (clé d'API Brevo, etc.) : jamais lus ; les expéditeurs, routeurs,
+  configurations d'envoi et créneaux sont repris par `--senders --slots` (§ 10), les identifiants se saisissent ensuite.
+- **Newsletters dynamiques, publicités natives** (`email_content` hors DEM, `[ad …]`, bannières) : le modèle éditorial
+  media (newsletter composée à l'envoi des meilleurs articles et publicités) n'a pas d'équivalent dans les `Content` de la
+  v2. Les articles et les DEM sont repris un par un en contenus fixes (§ 1 bis, § 7) ; les créneaux deviennent des
+  planifications à heure fixe (§ 10).
 - **Stats agrégées** (`email_stats`, `contacts_stats`, `inscription_stats`, `contact_stats`, `*_stats`) : les stats v2 se
   reconstruisent à partir des événements (`update_contact_event_stats_aggregates`, `update_contacts_stats`…) ; l'historique
   agrégé media reste consultable dans media.
@@ -173,8 +173,8 @@ pas repris. Ordre conseillé :
    `duplicates`, `existing` du résumé). Le job `scan_contact_to_update_status` (scheduler) recalcule ensuite statut et score
    de chaque contact repris (`nextStatusUpdateDate` vide) ; pour forcer un premier passage :
    `bin/compose.sh <uid> run --rm --no-deps api node scripts/run-job.js scan_contact_to_update_status`.
-4. Côté instance : recréer les expéditeurs et routeurs (identifiants ESP), les configurations d'envoi, les contenus et
-   planifications ; régler le domaine de tracking (`TRACKING_HOSTS`, DNS, `bin/tls.sh issue-tracking`), l'URL de
+4. Côté instance : expéditeurs, routeurs, configurations d'envoi et créneaux par `--senders --slots` (§ 10 ; identifiants
+   ESP à saisir ensuite), contenus ; régler le domaine de tracking (`TRACKING_HOSTS`, DNS, `bin/tls.sh issue-tracking`), l'URL de
    désabonnement des gabarits (media : `settings.emailingUnsubUrl` → v2 : `/unsub` de l'instance ; les liens en dur des
    DEM reprises sont convertis, § 1 bis). Vérifier qu'aucun lien de désabonnement media ne reste dans les contenus :
    ```sql
@@ -304,6 +304,8 @@ Mesures (produit pilote, ~7 200 contacts, 6 400 événements d'historique, base 
 | `apps/api/src/migration/mediaStatusSync.js`, `apps/api/scripts/sync-statuses-from-media.js` | synchronisation ; test `test/integration/sync-statuses-from-media.test.js` |
 | `deploy/bin/set-media-source.sh <uid> --media-instance <nom> --product <p> [--ads-secret <s> [--ads-host <h>]] \| --check \| --unset` | source media de l'instance (`MEDIA_DATABASE_URL`, `MEDIA_PRODUCTS`, `ADS_DATABASE_URL` dans son `.env`), § 7 |
 | job `media_campaigns_import` (scheduler, toutes les heures) ; `apps/api/scripts/import-media-campaigns.js [--dry-run]` | import régulier des campagnes DEM (§ 7) ; règles dans `apps/api/src/migration/mediaCampaigns.js`, test `test/integration/media-campaigns-import.test.js` |
+| `… --product <p> --senders --slots [--slot-time HH:MM \| --slot-time <id>=HH:MM[,…]] [--tracking-domain https://lk.<domaine>] [--dry-run]` | expéditeurs (routeurs sans identifiants), configurations d'envoi, créneaux → planifications **désactivées** (§ 10) ; `apps/api/src/migration/mediaSending.js`, test `test/integration/migrate-sending-from-media.test.js` |
+| `bin/compose.sh <uid> run --rm -T --no-deps api node scripts/set-mail-router-credentials.js --list \| --router-id <id> [--field <nom> \| --json] < secret` | identifiants d'un routeur lus sur l'entrée standard, chiffrés comme par l'UI (§ 10) |
 | `deploy/bin/media-compare.sh --media-instance <nom> --migrated <uid>=<p>[@date] --witness <p> [--weeks N] [--format csv\|json\|table] [--revenue ca.csv]` | tableau comparatif hebdomadaire base migrée / témoins (§ 9) |
 | `deploy/bin/sync-statuses-to-media.sh <uid> --since <bascule> [--inscriptions-csv \| --apply --write-secret <s>]` | retour arrière : désabonnements, plaintes, bounces v2 → media (§ 9) ; `apps/api/src/migration/mediaReverseSync.js`, test `test/integration/sync-statuses-to-media.test.js` |
 
@@ -554,3 +556,67 @@ bascule, avoir noté la liste des créneaux media actifs du produit
 Contrôles après retour arrière (SQL media) : pas de contact du produit `active`/`new` parmi les désabonnés v2 (relancer la
 simulation : `toUpdate = 0`) ; `SELECT count(*) FROM contact_history WHERE details->>'origin' = 'toolso-emailing-v2'`
 égal à `updated` du report.
+
+## 10. Expéditeurs, configurations d'envoi, créneaux et domaine de suivi (`--senders --slots`)
+
+```bash
+sudo bin/migrate-from-media.sh <uid> --media-instance <nom> --product <p> --senders --slots --dry-run   # plan, heures observées
+sudo bin/migrate-from-media.sh <uid> --media-instance <nom> --product <p> --senders --slots --slot-time <id>=HH:MM
+```
+
+Relançable : `config.media = { type, id, product }` identifie l'origine (`MailRouter`, `SendingConfig`, `Schedule`) ; un objet
+déjà repris n'est ni modifié ni réactivé. Rien n'est envoyé : les planifications sont créées **désactivées** et les routeurs
+Brevo sans clé.
+
+| media | v2 |
+|---|---|
+| `email_sender` routeur `toolso` (`config.dns`, `ip`, `ip_bind`) | `MailRouter` `toolso` : `endpoint = http://<dns>:5000/sendRawEmail` (MTA Haraka du routeur Toolso, API HTTP sans authentification), IP de sortie, `webhookEndpoint = <API_PUBLIC_URL>/webhooks/toolso` ; aucun identifiant |
+| `email_sender` routeur `brevo` (`config.ip`, `config.apikey`) | `MailRouter` `sib` avec l'IP dédiée (`config.ips`) ; **clé d'API à saisir** (`credentialsToEnter` du compte rendu) |
+| autre routeur | non repris (avertissement) |
+| `email_sender` (nom, adresse, nom d'affichage, réponse, `unsubscribe_mail_to`) | `Sender` rattaché à son routeur ; `trackingDomain` = `--tracking-domain`, défaut `https://<1er de TRACKING_HOSTS>` |
+| `email_sending_config.config.espSenders` (ESP → expéditeurs et poids) | `SendingConfig.config.espConfigs` : ESP regroupés par liste d'expéditeurs identique, `default` en premier |
+| `espScores[esp].minScore`, `auto`, `target_or` | `minScoreByEsp[esp]` (même échelle : `activityScore` est repris tel quel), `autoUpdates[esp] = { enabled, minOpenRate }` |
+| `email_slot` `recurrent` / `recurrent_schedule` | `Schedule` `recurrent` (`rate = day`), heure fixe, **désactivée** ; `maxDaySlots` N → N planifications |
+| `email_slot` `inscription` (message de bienvenue) | `Schedule` `inscription` désactivée ; rattachée aux sources qui la citent (`contact_source.email_slot_ids` → `ContactSource.apiScheduleIds`) |
+
+Heures : media envoie un créneau `recurrent` sans `sending_time_strategy = manual` **à l'heure propre à chaque contact**
+(ses heures d'ouverture du mois, minute aléatoire) ; la v2 n'a pas d'équivalent. L'heure fixe vient de `--slot-time`
+(globale ou `<id créneau>=HH:MM[,…]`), à défaut 09:00 puis +3 h (le repli de media sans statistiques). La simulation affiche
+les heures d'envoi observées dans media sur 14 jours (`observedHours`). Fuseau : celui de l'instance (réglage `timezone`,
+Europe/Paris par défaut, comme media).
+
+Non repris (avertissements) : filtres de contacts des créneaux (format media), délai du message de bienvenue
+(`delay_time`), plafonds d'activation media (`maxNewRequests`, `newCapping`, `newRatio` → réglages d'activation v2), contenus
+des créneaux : les DEM importées (§ 7) se rattachent aux planifications listées dans `MEDIA_CAMPAIGNS_SCHEDULES` (identifiants
+`plan.schedules[].id` du compte rendu).
+
+### Identifiants des routeurs
+
+Dans l'UI (page ESP) ou, sans que la valeur apparaisse nulle part, par l'entrée standard :
+
+```bash
+bin/compose.sh <uid> run --rm -T --no-deps api node scripts/set-mail-router-credentials.js --list
+bin/compose.sh <uid> run --rm -T --no-deps api node scripts/set-mail-router-credentials.js --router-id <id> < cle-brevo   # credentials.apiKeyV3
+```
+
+### Retours des routeurs (bounces, plaintes)
+
+- **Brevo** : un compte Brevo sert souvent plusieurs bases (media et instances v2) et chaque webhook du compte reçoit tous
+  les événements. Chaque instance ignore les événements étiquetés qui ne portent pas `tls_<uid>` (media étiquette
+  `uid_…`, `product_…`) : on peut donc ajouter au compte un webhook par instance, `https://<serveur>/api/<uid>/webhooks/sib`
+  (événements delivered, opened, click, hard/soft bounce, spam, unsubscribe, blocked), sans toucher à celui de media.
+- **Routeur Toolso (Haraka)** : le greffon du MTA utilisé par media (`router/toolso-app.js` du dépôt media) renvoie ses
+  événements de livraison et de bounce vers **SQS** (`details.sqsEndpoint`) et ignore `details.webhookEndpoint` envoyé par
+  la v2 : tant que le greffon n'appelle pas `webhookEndpoint`, les bounces SMTP d'un envoi v2 par ce routeur ne reviennent
+  pas dans l'instance (les clics, ouvertures et désabonnements, eux, passent par le domaine de suivi).
+- Joignabilité depuis un serveur Scaleway (ports 25/465/587 sortants bloqués) : l'API Brevo (HTTPS 443) et l'API du MTA
+  Haraka (HTTP 5000) le sont ; aucun envoi SMTP ne part du serveur.
+
+### Domaine de suivi
+
+Un domaine `lk.<domaine du site>` par instance (`TRACKING_HOSTS`, `add-database.sh … lk.<domaine>`) : enregistrement **A**
+(et AAAA si le serveur en a une) vers le serveur de bases, ou CNAME vers son nom ; puis `bin/tls.sh issue-tracking <uid>`
+quand le DNS répond. Ne pas reprendre le domaine de redirection media (`settings.emailingRedirectionLink`, souvent
+`news.<domaine>`) : les liens des e-mails déjà envoyés par media (`/tk/r2/…`, `/tk/c/…`, `/tk/o2/…`, `/unsubscribe/…`,
+`/mirror/…`, page `/desinscription`) doivent continuer d'aboutir à media au moins 60 jours après la bascule, et ce domaine
+porte souvent aussi le MX et le SPF de l'adresse d'expédition.

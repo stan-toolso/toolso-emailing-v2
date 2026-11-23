@@ -397,10 +397,28 @@ const handleToolsoEvent = async (event) => {
   return 'OK';
 };
 
+/**
+ * Un compte Brevo peut servir plusieurs bases (instances v2 et toolso-media) et chaque webhook du compte reçoit tous les
+ * événements : en v1, un répartiteur unique triait par étiquette `tls_<uid>`. Ici chaque instance a son URL et ignore
+ * les événements étiquetés qui ne portent pas sa propre étiquette `tls_<RESOURCE_UID>` (ceux de media portent `uid_…`).
+ * Sans étiquette, l'événement est traité comme avant.
+ */
+const isSibEventForOtherBase = (sibEvent) => {
+  const tags = [].concat(sibEvent.tags ?? [], sibEvent.tag ?? []).filter((t) => typeof t === 'string' && t);
+  if (tags.length === 0 || !process.env.RESOURCE_UID) {
+    return false;
+  }
+  return !tags.includes(`tls_${process.env.RESOURCE_UID}`);
+};
+
 const handleSibEvent = async (event) => {
   let sibEvent = JSON.parse(event.body);
 
   if (sibEvent.event.indexOf('contact_') >= 0) {
+    return 'OK';
+  }
+  if (isSibEventForOtherBase(sibEvent)) {
+    log.debug(`SIB event for another base (tags ${JSON.stringify(sibEvent.tags ?? sibEvent.tag)}), ignored`);
     return 'OK';
   }
   if (sibEvent.event == 'request') {
@@ -702,4 +720,11 @@ const handleMessage = async (event) => {
 };
 
 module.exports = {
-  unwrapSns, handleWebhook, handleSesEvent, handleToolsoEvent, handleSibEvent, untrackLink };
+  unwrapSns,
+  handleWebhook,
+  handleSesEvent,
+  handleToolsoEvent,
+  handleSibEvent,
+  isSibEventForOtherBase,
+  untrackLink
+};
