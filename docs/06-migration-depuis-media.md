@@ -265,6 +265,9 @@ Mesures (produit pilote, ~7 200 contacts, 6 400 événements d'historique, base 
 | `apps/api/src/migration/mediaDatabase.js` | règles de correspondance ; test `test/integration/migrate-from-media.test.js` (schéma media de test : `test/fixtures/media-schema.sql`) |
 | `… --product <p> --contents [--articles-only \| --dems-only] [--ads-secret toolso-ads [--ads-host <cluster>] \| --ads-url <url>] [--all-articles] [--include-disabled] [--since-days N] [--dry-run]` | articles et DEM → contenus v2 inactifs |
 | `apps/api/scripts/migrate-contents-from-media.js` (`MEDIA_DATABASE_URL`, `ADS_DATABASE_URL`) | conversion des contenus |
+| `… --api-keys [--dry-run]` | clés d'API media seules (API de transition, § 8) ; aussi reprises par la reprise des contacts sauf `--skip-api-keys` |
+| `apps/api/src/api/mediaCompat/` | API de transition `/v1/…` ; test `test/integration/media-compat.test.js` |
+| `deploy/media-relay/0001-relais-v2.patch` | relais côté media (réglage produit `v2RelayUrl`) |
 | `apps/api/src/migration/mediaContents.js` | gabarit d'article, rendu partiel Mustache, règles DEM ; test `test/integration/migrate-contents-from-media.test.js` (schéma ads de test : `test/fixtures/ads-schema.sql`) |
 | `… --sync-statuses [--product <p>] [--dry-run] [--full] [--no-new-contacts] [--no-recalculate] [--email-flags-days N] [--show-cursor]` | transition : statuts, blacklist, réinscriptions, nouveaux contacts media → v2 (job `sync_media_statuses` si `MEDIA_STATUS_SYNC=1`) |
 | `apps/api/src/migration/mediaStatusSync.js`, `apps/api/scripts/sync-statuses-from-media.js` | synchronisation ; test `test/integration/sync-statuses-from-media.test.js` |
@@ -348,3 +351,61 @@ bin/compose.sh <uid> run --rm --no-deps api node scripts/import-media-campaigns.
 bin/compose.sh <uid> run --rm --no-deps api node scripts/run-job.js media_campaigns_import
 bin/psql.sh <uid> -c "SELECT \"isActive\", count(*) FROM \"Content\" WHERE config->'media'->>'type' = 'dem' GROUP BY 1"
 ```
+
+## 8. API de transition (appels faits à media pour un produit basculé)
+
+Après la bascule, les sites et le CRM du client continuent un temps d'appeler l'API REST de media
+(`https://<api media>/v1/…`, servie par l'EC2 de l'instance media : nginx → Express `backend/bin/api.js`, port 4000 ; ni
+API Gateway ni ALB). Deux pièces, à combiner :
+
+1. **Dans la v2, une API compatible** (`apps/api/src/api/mediaCompat/`) : mêmes routes, mêmes clés, mêmes réponses JSON
+   que media, sous `https://<serveur>/api/<uid>/v1/…` (ou à la racine d'un domaine de suivi `https://lk.<domaine>/v1/…`).
+   Pour l'appelant, seule la base de l'URL change.
+2. **Dans media, un relais** (`deploy/media-relay/0001-relais-v2.patch`, middleware `relayToV2` placé après les filtres
+   d'accès) : pour un produit dont le réglage `v2RelayUrl` est renseigné (`https://<serveur>/api/<uid>`), l'appel est
+   transmis tel quel à `<v2RelayUrl>/v1/…` et la réponse de la v2 renvoyée. Réglage vide : comportement inchangé. Si la v2
+   ne répond pas (10 s, `V2_RELAY_TIMEOUT_MS`, ou erreur 5xx), media traite l'appel comme avant ; la synchronisation des
+   statuts media → v2 et la reprise relancée rattrapent alors ces appels.
+
+Le relais permet de basculer sans attendre le client ; la v2 compatible permet ensuite au client de changer d'URL à son
+rythme et d'arrêter media. Le relais ne peut pas se faire devant media (pas de répartiteur, et les routes `/v1/source/…`
+ne désignent le produit que par la clé de la source, parfois dans le corps).
+
+| Route media (`/v1/…`) | Accès | Effet dans la v2 | Réponse (comme media) |
+|---|---|---|---|
+| `POST /:product_uid/contacts/` | clé `ApiKey` (en-tête `apikey` / `api-key`) | `InscriptionService` : contact créé ou mis à jour (champs connus → colonnes, autres champs et objet `fields` → `customFields`), inscription avec `collect_ip` / `collect_url`, source retrouvée par `source_name` (utm, sans casse) ou créée ; filtres v2 (ESP dangereux, motifs, blacklist) | `contact_accepted` + `contact` / `invalid_payload` / `inscription_refused` |
+| `GET /:product_uid/contacts/check?email=` | clé | mêmes filtres, sans écriture | `inscription_acceptable` / `inscription_refused` |
+| `GET /:product_uid/contacts/:email` | clé | lecture | contact au format media (`email_status` : `workable` → `active`, `removed` → `archived`) / `contact_not_found` |
+| `DELETE /:product_uid/contacts/` (`{ email }`) | clé | `removeContactWithEmail` | `ok` / `contact_not_found` |
+| `POST /:product_uid/unsubscriptions/` (`{ email, reason?, ip?, … }`) | clé | événement `unsub` (détails conservés) puis statut recalculé ; une nouvelle inscription l'annule, comme media | `ok` / `Contact not found` |
+| `POST /:product_uid/contacts/pixel_tracking_consent` | clé | `pixelTrackingConsent` + historique | `pixel_tracking_consent_updated` |
+| `POST /source/contacts/`, `GET /source/contacts/check` | clé de la source (en-tête ou corps `apikey`) | champs de la source (`apiFields` : obligatoires, validateurs, valeurs manuelles), inscription rattachée à la source | `contact_accepted` / `campaign_disabled` / `invalid_payload` / `no_api_key` / `invalid_api_key` |
+| `GET /contacts/export?fields=&unique_fields=&filter=` | clé | CSV de tous les contacts de l'instance ; colonnes media et `fields.<champ>` | CSV ; filtre autre que `product_id` / `productIds` refusé (`unsupported_filter`, 400) |
+| `POST /ad/click/conversion` | aucun | **transférée à media** (`MEDIA_CONVERSION_URL`) : les conversions portent sur les publicités media (`tsclid`, base ads commune) | réponse de media ; sans URL : 503 |
+
+Produits servis : `MEDIA_PRODUCT_UIDS` (défaut `RESOURCE_UID`) ; un autre `:product_uid` répond `unauthorized`.
+Les clés `ApiKey` de media (table `api_key`, globale à la base media) sont reprises avec `permissions.scope = media-compat` :
+elles n'ouvrent que `/v1/…` (ni le GraphQL ni les routes v2). Les clés des sources sont reprises avec les sources.
+
+Écarts connus : les filtres d'inscription media `crmInscriptionDefaultFilters` (réglage produit) et `settings.filters`
+d'une source (dédoublonnage, plafonds, plages horaires) ne sont pas appliqués (la v2 applique ses propres filtres et
+`apiSettings.filters` de la source) ; `source_id` (id media) n'est pas reconnu (utiliser `source_name`) ; `id` du contact
+renvoyé = id v2 ; `collect_user_agent` / `collect_site_name` ne sont pas conservés ; un jeton d'utilisateur media n'est pas
+accepté (les clés d'API, si).
+
+Mise en service pour un produit (à J, étape « relais d'API ») :
+
+```bash
+# 1. sur le serveur de bases : clés d'API media dans l'instance (avant d'activer le relais), puis vérification
+sudo bin/migrate-from-media.sh <uid> --media-instance <nom> --api-keys --dry-run
+sudo bin/migrate-from-media.sh <uid> --media-instance <nom> --api-keys
+#    .env de l'instance : MEDIA_PRODUCT_UIDS=<produit media> si différent de l'uid,
+#    MEDIA_CONVERSION_URL=https://<api media>/v1/ad/click/conversion ; redémarrer l'api
+curl -s -H "apikey: <clé>" "https://<serveur>/api/<uid>/v1/<produit>/contacts/check?email=test@exemple.com"
+# 2. dans media (patch déployé une fois) : réglage du produit, pris en compte sous 5 minutes (cache des réglages)
+#    INSERT INTO settings (name, value, product_id, created_at, updated_at)
+#      VALUES ('v2RelayUrl', 'https://<serveur>/api/<uid>', <id produit>, now(), now());
+# retour arrière : DELETE FROM settings WHERE name = 'v2RelayUrl' AND product_id = <id produit>;
+```
+
+Suivi : journal de l'api v2 (`MediaCompat`), journal media (`relayToV2` : appels relayés, replis locaux).
