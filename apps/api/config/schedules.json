@@ -21,5 +21,6 @@
   "calculate_usages": { "cron": "0 5 * * *", "description": "cron(0 5 * * ? *) — inactif sans USAGE_DATABASE_URL" },
   "update_sending_configs": { "cron": "0 5 * * *", "description": "cron(0 5 * * ? *)" },
   "media_campaigns_import": { "cron": "25 * * * *", "description": "v2 : import des campagnes DEM de toolso-ads (transition depuis media) ; inactif sans MEDIA_DATABASE_URL / ADS_DATABASE_URL / MEDIA_PRODUCTS" },
+  "sync_media_statuses": { "cron": "40 * * * *", "description": "transition toolso-media : statuts, blacklist, réinscriptions et nouveaux contacts (inactif sans MEDIA_STATUS_SYNC=1)" },
   "update_contents_scores": { "cron": "4 * * * *", "enabled": false, "description": "règle désactivée sur AWS (job non câblé)" }
 }
