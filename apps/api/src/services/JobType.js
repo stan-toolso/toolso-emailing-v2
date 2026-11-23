@@ -20,5 +20,6 @@ module.exports = Object.freeze({
   update_adsense_incomes_yesterday: 'update_adsense_incomes_yesterday',
   build_model: 'build_model',
   check_schedules_missing_contents: 'check_schedules_missing_contents',
-  update_contents_stats_table: 'update_contents_stats_table'
+  update_contents_stats_table: 'update_contents_stats_table',
+  media_campaigns_import: 'media_campaigns_import'
 });
