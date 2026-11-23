@@ -357,6 +357,9 @@ const newStats = () => ({
  * @param {boolean} [options.skipMessages]
  * @param {string} [options.timezone] fuseau des journées d'inscription (isFirstToday), défaut TZ ou Europe/Paris
  * @param {Date} [options.now]
+ * @param {Record<string, number>} [options.fromContactIds] par uid de produit, ne lire que les contacts media d'id supérieur
+ *   (rattrapage des nouveaux contacts par la synchronisation, voir mediaStatusSync.js) ; `stats.lastContactIds` donne en
+ *   retour le dernier id lu par produit
  * @param {(progress: object) => void} [options.onProgress]
  */
 const migrateFromMedia = async (options) => {
@@ -687,14 +690,17 @@ const migrateFromMedia = async (options) => {
       await finish(t);
     };
 
+    stats.lastContactIds = {};
     for (const product of products) {
-      let lastId = 0;
+      let lastId = Number(options.fromContactIds?.[product.uid] ?? 0) || 0;
+      stats.lastContactIds[product.uid] = lastId;
       for (;;) {
         const { rows } = await source.query('SELECT * FROM contact WHERE product_id = $1 AND id > $2 ORDER BY id LIMIT $3', [product.id, lastId, batchSize]);
         if (rows.length === 0) {
           break;
         }
         lastId = rows[rows.length - 1].id;
+        stats.lastContactIds[product.uid] = lastId;
         stats.contacts.read += rows.length;
         await migrateBatch(rows, product);
         onProgress({ product: product.uid, lastId, ...stats.contacts });
@@ -730,7 +736,9 @@ module.exports = {
   normalizeGender,
   normalizeDob,
   STATUS_MAPPING,
+  STATUS_EVENT_OF,
   HISTORY_EVENT_TYPES,
+  toDate,
   DEFAULT_SINCE_DAYS,
   DEFAULT_BATCH_SIZE
 };

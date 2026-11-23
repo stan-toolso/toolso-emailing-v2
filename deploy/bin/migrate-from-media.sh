@@ -11,6 +11,13 @@
 #   sudo bin/migrate-from-media.sh <uid> --product <p> --contents [--articles-only | --dems-only] [source] [ads]
 #                                                                                      reprise des contenus (articles → Content
 #                                                                                      newsletter, DEM → Content marketing)
+#   sudo bin/migrate-from-media.sh <uid> --sync-statuses [--product <p>] [--dry-run] [--full] [--no-new-contacts] [source]
+#                                                                                      transition : rejoue dans l'instance les
+#                                                                                      désabonnements, plaintes, bounces,
+#                                                                                      blacklist, réinscriptions et nouveaux
+#                                                                                      contacts survenus dans media (même
+#                                                                                      traitement que le job sync_media_statuses)
+#   sudo bin/migrate-from-media.sh <uid> --sync-statuses --show-cursor               dernier passage (curseur, compteurs)
 # Source (une des deux formes) :
 #   --source-url postgres://user:mdp@hôte:5432/base    (ou variable MEDIA_DATABASE_URL déjà exportée)
 #   --media-instance <nom>   secret AWS Secrets Manager « media-<nom> » (un secret par base media, noms dans backend/build/update_model_all.js du dépôt media),
@@ -21,6 +28,10 @@
 #   directement sur son cluster (ex. --ads-host toolso-media-2.cluster-….eu-west-3.rds.amazonaws.com).
 # Options contenus : --all-articles (aussi brouillons / exclus de l'emailing), --include-disabled (publicités désactivées),
 #   --since-days N (articles publiés depuis N jours).
+# Synchronisation (--sync-statuses) : source et produits par défaut lus dans le .env de l'instance (MEDIA_DATABASE_URL,
+#   MEDIA_PRODUCTS, écrits par bin/set-media-source.sh) ; --email-flags-days N (envois media relus pour leurs drapeaux,
+#   défaut 60), --no-recalculate (laisser le recalcul des statuts au job scan_contact_to_update_status). Job planifié
+#   toutes les heures quand MEDIA_STATUS_SYNC=1 dans ce .env (voir docs/06-migration-depuis-media.md).
 # Options : --since-days N (envois repris en événements, défaut 90 ; 0 = seulement les événements de statut),
 #           --dump (pg_dump -Fc de la base media dans BACKUP_DIR/media-migration/ avant la reprise, archive),
 #           --skip-blacklist, --skip-messages, --skip-api-keys, --batch-size N, --ssl-mode <require|no-verify|disable> (défaut no-verify :
@@ -38,6 +49,7 @@ MEDIA_AWS_REGION="${MEDIA_AWS_REGION:-eu-west-3}"
 uid="" products="" source_url="${MEDIA_DATABASE_URL:-}" media_instance="" since_days="" batch_size="" ssl_mode="no-verify"
 ads_url="${ADS_DATABASE_URL:-}" ads_secret="" ads_host_override="" contents=0 articles_only=0 dems_only=0 all_articles=0 include_disabled=0
 mode="migrate" do_dump=0 skip_blacklist=0 skip_messages=0 skip_api_keys=0 api_keys_only=0
+sync_statuses=0 sync_full=0 sync_no_new=0 sync_no_recalc=0 sync_cursor=0 email_flags_days=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --product) products="${products:+$products,}${2:-}"; shift 2 ;;
@@ -50,6 +62,12 @@ while [[ $# -gt 0 ]]; do
     --ads-secret) ads_secret="${2:-}"; shift 2 ;;
     --ads-host) ads_host_override="${2:-}"; shift 2 ;;
     --contents) contents=1; shift ;;
+    --sync-statuses) sync_statuses=1; shift ;;
+    --full) sync_full=1; shift ;;
+    --no-new-contacts) sync_no_new=1; shift ;;
+    --no-recalculate) sync_no_recalc=1; shift ;;
+    --show-cursor) sync_cursor=1; shift ;;
+    --email-flags-days) email_flags_days="${2:-}"; shift 2 ;;
     --articles-only) articles_only=1; shift ;;
     --dems-only) dems_only=1; shift ;;
     --all-articles) all_articles=1; shift ;;
@@ -63,7 +81,7 @@ while [[ $# -gt 0 ]]; do
     --skip-api-keys) skip_api_keys=1; shift ;;
     --api-keys) api_keys_only=1; shift ;;
     --yes) export ASSUME_YES=1; shift ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,41p' "$0"; exit 0 ;;
     --*) die "Option inconnue : $1" ;;
     *) [[ -z "$uid" ]] || die "Un seul identifiant de base attendu."; uid="$1"; shift ;;
   esac
@@ -73,6 +91,17 @@ require_instance "$uid"
 [[ "$ssl_mode" =~ ^(require|no-verify|disable)$ ]] || die "--ssl-mode attend require, no-verify ou disable."
 [[ -z "$since_days" || "$since_days" =~ ^[0-9]+$ ]] || die "--since-days attend un entier ≥ 0."
 [[ -z "$batch_size" || "$batch_size" =~ ^[1-9][0-9]*$ ]] || die "--batch-size attend un entier ≥ 1."
+[[ -z "$email_flags_days" || "$email_flags_days" =~ ^[0-9]+$ ]] || die "--email-flags-days attend un entier ≥ 0."
+instance_env="$(instance_dir "$uid")/.env"
+if [[ "$sync_statuses" == "1" ]]; then
+  # produits et source par défaut : ceux de l'instance (MEDIA_PRODUCTS, MEDIA_DATABASE_URL de son .env)
+  [[ -n "$products" ]] || products="$(env_get "$instance_env" MEDIA_PRODUCTS)"
+  if [[ -z "$source_url" && -z "$media_instance" ]]; then
+    [[ -n "$(env_get "$instance_env" MEDIA_DATABASE_URL)" || "$sync_cursor" == "1" ]] || die "Source media non précisée : MEDIA_DATABASE_URL absent de $instance_env (bin/set-media-source.sh) ; ou --media-instance <nom> / --source-url <url>."
+    source_from_env=1
+  fi
+  [[ -n "$products" || "$sync_cursor" == "1" ]] || die "Produits media non précisés : --product <uid> ou MEDIA_PRODUCTS dans $instance_env."
+fi
 [[ "$mode" == "list" || "$api_keys_only" == "1" || -n "$products" ]] || die "Préciser le ou les produits media à reprendre : --product <uid>[,<uid>…] (liste : --list-products)."
 container_running postgres || die "PostgreSQL n'est pas démarré (bin/compose.sh platform up -d)."
 docker image inspect toolso-emailing-api:latest >/dev/null 2>&1 || die "Image toolso-emailing-api absente : bin/add-database.sh $uid … la construit."
@@ -80,7 +109,9 @@ docker image inspect toolso-emailing-api:latest >/dev/null 2>&1 || die "Image to
 # ---------- source ----------
 # L'URL complète (avec le mot de passe) ne circule que par l'environnement : MEDIA_DATABASE_URL pour le conteneur api,
 # MEDIA_LIBPQ_URL pour pg_dump. Jamais sur une ligne de commande, jamais affichée.
-if [[ -n "$media_instance" ]]; then
+if [[ "${source_from_env:-0}" == "1" ]]; then
+  info "Source : MEDIA_DATABASE_URL du .env de l'instance $uid"
+elif [[ -n "$media_instance" ]]; then
   [[ -z "$source_url" ]] || die "--media-instance et --source-url sont exclusifs."
   require_aws
   json="$(AWS_REGION="$MEDIA_AWS_REGION" aws_secret_json "media-$media_instance")" || die "Lecture du secret media-$media_instance impossible (région $MEDIA_AWS_REGION, droit secretsmanager:GetSecretValue ?)."
@@ -127,11 +158,38 @@ if [[ "$contents" == "1" && "$articles_only" == "0" ]]; then
   fi
   unset ads_url
 fi
-base_url="${source_url%%\?*}"
-libpq_ssl="$ssl_mode"; [[ "$libpq_ssl" == "no-verify" ]] && libpq_ssl="require"
-export MEDIA_DATABASE_URL="$base_url?sslmode=$ssl_mode"
-export MEDIA_LIBPQ_URL="$base_url?sslmode=$libpq_ssl"
-unset source_url base_url
+if [[ "${source_from_env:-0}" != "1" ]]; then
+  base_url="${source_url%%\?*}"
+  libpq_ssl="$ssl_mode"; [[ "$libpq_ssl" == "no-verify" ]] && libpq_ssl="require"
+  export MEDIA_DATABASE_URL="$base_url?sslmode=$ssl_mode"
+  export MEDIA_LIBPQ_URL="$base_url?sslmode=$libpq_ssl"
+  unset source_url base_url
+fi
+
+# ---------- synchronisation des statuts (transition) ----------
+if [[ "$sync_statuses" == "1" ]]; then
+  sargs=()
+  [[ -n "$products" ]] && sargs+=(--product "$products")
+  [[ "$mode" == "dry-run" ]] && sargs+=(--dry-run)
+  [[ "$sync_full" == "1" ]] && sargs+=(--full)
+  [[ "$sync_no_new" == "1" ]] && sargs+=(--no-new-contacts)
+  [[ "$sync_no_recalc" == "1" ]] && sargs+=(--no-recalculate)
+  [[ "$sync_cursor" == "1" ]] && sargs+=(--show-cursor)
+  [[ -n "$email_flags_days" ]] && sargs+=(--email-flags-days "$email_flags_days")
+  [[ -n "$batch_size" ]] && sargs+=(--batch-size "$batch_size")
+  # sans source explicite, le conteneur lit MEDIA_DATABASE_URL dans le .env de l'instance (env_file)
+  eargs=()
+  [[ "${source_from_env:-0}" == "1" ]] || eargs+=(-e MEDIA_DATABASE_URL)
+  [[ "$mode" == "migrate" || "$mode" == "dry-run" ]] || die "--sync-statuses s'utilise avec --dry-run ou sans mode."
+  log_dir="${BACKUP_DIR:-/var/backups/toolso-emailing}/media-migration"
+  install -d -m 0700 "$log_dir"
+  log_file="$log_dir/sync_${uid}_$(date +%Y-%m-%d_%H%M%S).log"
+  info "Synchronisation des statuts media → emailing_$uid${products:+ (produits $products)} (journal : $log_file)"
+  if compose_instance "$uid" run --rm --no-deps "${eargs[@]}" api node scripts/sync-statuses-from-media.js "${sargs[@]}" 2>&1 | tee "$log_file"; then
+    exit 0
+  fi
+  die "La synchronisation a échoué (voir $log_file). Relançable : rien n'est créé en double."
+fi
 
 # ---------- arguments du script node ----------
 args=()

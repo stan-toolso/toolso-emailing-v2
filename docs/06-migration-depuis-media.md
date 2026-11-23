@@ -48,7 +48,7 @@ rattacher à une planification dans l'UI.
 | media | v2 | Règles |
 |---|---|---|
 | `article` du produit (`status = published`, `distribution_settings.emailing_enabled` ≠ false ; `--all-articles` pour tout, `--since-days N` pour les récents) | `Content` type `newsletter` + `ContentVersion` rattachée au `ContentTemplate` « Article – <produit> » | Le gabarit est créé une fois par produit (HTML générique : en-tête, image, titre, résumé, bouton « Lire l'article », pied avec `{{{unsubLink}}}` et `{{{mirrorLink}}}`) : le modifier dans l'UI change tous les articles repris. Les données sont dans `templateVariables` : `content.title`, `content.subject` (`email_subject` sinon titre), `content.preview_text`, `content.link` (`link`, champ personnalisé `articleLinkCustomField`, `url`, sinon `siteUrl/slug`), `content.cta_url`, `content.short_resume` / `long_resume` (texte, 100 / 200 caractères comme media), `content.description`, `content.body` (HTML complet de l'article), `content.image_url` / `image_w400` (`imgBaseUrl` ou `siteUrl` + `/imgs/max|400x400/<slug>.webp`, sinon `featured_image.url`), `content.categories`, `content.customs`, `content.site_url`, `content.product_name`. `Content.category` = première catégorie media |
-| `ad` de format `dem` (base **ads**, secret `toolso-ads`) dont le groupe cible le produit (`ad_group.support_settings.productIds`, vide = tous) et dont publicité, groupe et campagne sont actifs (`--include-disabled` sinon) | `Content` type `marketing` | HTML = `ad.content.html` rendu avec `ad.*`, `ad_group.*`, `campaign.*`, `product.*` résolus, encadré par `settings.header` / `settings.footer` de la version active du contenu media de type `dem` ; sujet, nom d'expéditeur et pré-en-tête de la publicité. `Content.category` = annonceur ; `config.media` garde campagne, groupe, partenaire et paramètre de clic partenaire (`ts_click_field`, non appliqué) |
+| `ad` de format `dem` (base **ads**, secret `toolso-ads`) dont le groupe cible le produit (`ad_group.support_settings.productIds`, vide = tous) et dont publicité, groupe et campagne sont actifs (`--include-disabled` sinon) | `Content` type `marketing` | HTML = `ad.content.html` rendu avec `ad.*`, `ad_group.*`, `campaign.*`, `product.*` résolus, encadré par `settings.header` / `settings.footer` de la version active du contenu media de type `dem` ; sujet, nom d'expéditeur et pré-en-tête de la publicité. `Content.category` = annonceur ; `config.media` garde campagne, groupe, partenaire et paramètre de clic partenaire. Comme media, le paramètre du partenaire (`ts_click_field=ts_click_value`) est ajouté à chaque lien, sauf s'il dépend de l'identifiant de clic `tsclid` (généré par la redirection media, sans équivalent v2) |
 | `ad` de format `dem_template` | `Content` type `marketing` | gabarit = version active du contenu media de type `dem_template` du produit, rendu avec `ad.*` (contenu, `ad.link` = destination, `ad.image.src` absolu via `emailingRedirectionLink`) ; sans gabarit actif, la publicité est comptée `noTemplate` |
 
 Rendu partiel (`renderKeeping`) : seules les variables propres à media sont résolues ; `{{contact.*}}`, `{{unsubLink}}`,
@@ -198,6 +198,61 @@ pas repris. Ordre conseillé :
 - **Secret du README media** : le dépôt toolso-media contient un jeton GitLab en clair (`README.md`, `backend/NEW_SERVER.md`) ;
   il n'est pas utilisé ici et doit être révoqué (voir la tâche sécurité du projet).
 
+## 5 bis. Transition : synchronisation des statuts media → v2 (`--sync-statuses`, job `sync_media_statuses`)
+
+Après la bascule d'un produit, les liens de désabonnement des mails **déjà envoyés par media**, les retours de l'ESP
+(plaintes, hard bounces) et parfois de nouvelles inscriptions arrivent encore dans la base media. La reprise relancée
+n'ajoute que les nouveaux e-mails ; la synchronisation, elle, rejoue les changements dans l'instance v2. À garder active
+**au moins 60 jours** après la dernière bascule de l'instance.
+
+Ce qui est relu à chaque passage (produits de `MEDIA_PRODUCTS`, base media en lecture seule) :
+
+| Source media | Effet dans la v2 |
+|---|---|
+| `contact_history` `emailing_unsub` / `complaint` / `hard_bounce` / `contact_bounce` (id > curseur, plus recouvrement par date) | `ContactEvent` du même type |
+| `email` : drapeaux `unsubcribed`, `complainted`, `hard_bounced` des envois des 60 derniers jours modifiés depuis le dernier passage | `ContactEvent` (filet de sécurité : media écrit normalement aussi l'historique) |
+| `contact.email_status` `unsub` / `complaint` / `hard_bounce` modifié | événement « garanti » s'il manque (même règle que la reprise) |
+| `contact.email_status = blacklisted` | `Contact.status = blacklisted` |
+| `blacklisted_contact` (globale) modifiée | `BlacklistedContact` |
+| `inscription` d'un contact déjà présent dans la v2 | `ContactInscription` (réinscription : le contact redevient envoyable si son désabonnement est antérieur) |
+| contacts media d'id > curseur | reprise standard (`migrateFromMedia`), désactivable par `MEDIA_STATUS_SYNC_NEW_CONTACTS=0` quand le relais d'API est actif |
+
+Puis le statut des contacts touchés est **recalculé tout de suite** (`ContactStatusService`, comme le worker) : un contact
+désabonné dans media n'est plus envoyable dès la fin du passage.
+
+Règles :
+
+- rapprochement par **e-mail** normalisé (un contact créé dans la v2 par une autre voie est aussi mis à jour) ;
+- **idempotent** : chaque événement rejoué porte `details.media = { product, kind, key, date }` (clé `h:<id historique>`,
+  `e:<id envoi>:<type>`, `s:<id contact>:<statut>`) ; un événement avec la même clé, ou du même type à moins de 10 minutes
+  (événements créés par la reprise), n'est pas recréé ; relancer un passage ou un rattrapage complet (`--full`) ne crée
+  rien en double ;
+- un désabonnement **antérieur à la dernière inscription v2** est ignoré (compté `stale`) : il ne compte pas dans la v2 ;
+- date de l'événement : la date media, sauf si elle précède le dernier événement déjà intégré au cache `ContactEvents` du
+  contact (le recalcul ne relit que les événements postérieurs) : l'événement est alors daté du passage, la date media
+  restant dans `details.media.date` et `requestDate` ;
+- **curseur** : ligne `Settings` `mediaStatusSync` (JSON : par produit dernier id d'historique et de contact lus, date du
+  dernier passage, compteurs du dernier passage). Les lectures par date reprennent 60 minutes avant le dernier passage.
+  Sans curseur (premier passage), tout est relu : rattrapage complet, sans doublon.
+
+Activation (une fois par instance, après la bascule) :
+
+```bash
+# source et produits : écrits par bin/set-media-source.sh (MEDIA_DATABASE_URL, MEDIA_PRODUCTS dans le .env de l'instance)
+sudo bin/migrate-from-media.sh <uid> --sync-statuses --dry-run     # simulation (transaction annulée, curseur inchangé)
+sudo bin/migrate-from-media.sh <uid> --sync-statuses               # premier passage (rattrapage complet)
+sudo sh -c 'echo MEDIA_STATUS_SYNC=1 >> instances/<uid>/.env' && sudo bin/compose.sh <uid> up -d scheduler
+sudo bin/migrate-from-media.sh <uid> --sync-statuses --show-cursor  # dernier passage et ses compteurs
+```
+
+Le job `sync_media_statuses` tourne alors **toutes les heures** (minute 25, `config/schedules.json`) dans le scheduler de
+l'instance, sous le verrou du scheduler (le script manuel prend le même verrou). Désactivation : retirer
+`MEDIA_STATUS_SYNC` (ou `JOBS_DISABLED=sync_media_statuses`) puis redémarrer le scheduler. Sans `MEDIA_STATUS_SYNC=1`, le job
+ne fait rien.
+
+Mesures (produit pilote, ~7 200 contacts, 6 400 événements d'historique, base media distante) : rattrapage complet 2 min 20
+(0 doublon après la reprise), passage incrémental 3,5 s.
+
 ## 6. Référence rapide
 
 | Commande | Rôle |
@@ -210,12 +265,94 @@ pas repris. Ordre conseillé :
 | `apps/api/src/migration/mediaDatabase.js` | règles de correspondance ; test `test/integration/migrate-from-media.test.js` (schéma media de test : `test/fixtures/media-schema.sql`) |
 | `… --product <p> --contents [--articles-only \| --dems-only] [--ads-secret toolso-ads [--ads-host <cluster>] \| --ads-url <url>] [--all-articles] [--include-disabled] [--since-days N] [--dry-run]` | articles et DEM → contenus v2 inactifs |
 | `apps/api/scripts/migrate-contents-from-media.js` (`MEDIA_DATABASE_URL`, `ADS_DATABASE_URL`) | conversion des contenus |
-| `… --api-keys [--dry-run]` | clés d'API media seules (API de transition, § 7) ; aussi reprises par la reprise des contacts sauf `--skip-api-keys` |
+| `… --api-keys [--dry-run]` | clés d'API media seules (API de transition, § 8) ; aussi reprises par la reprise des contacts sauf `--skip-api-keys` |
 | `apps/api/src/api/mediaCompat/` | API de transition `/v1/…` ; test `test/integration/media-compat.test.js` |
 | `deploy/media-relay/0001-relais-v2.patch` | relais côté media (réglage produit `v2RelayUrl`) |
 | `apps/api/src/migration/mediaContents.js` | gabarit d'article, rendu partiel Mustache, règles DEM ; test `test/integration/migrate-contents-from-media.test.js` (schéma ads de test : `test/fixtures/ads-schema.sql`) |
+| `… --sync-statuses [--product <p>] [--dry-run] [--full] [--no-new-contacts] [--no-recalculate] [--email-flags-days N] [--show-cursor]` | transition : statuts, blacklist, réinscriptions, nouveaux contacts media → v2 (job `sync_media_statuses` si `MEDIA_STATUS_SYNC=1`) |
+| `apps/api/src/migration/mediaStatusSync.js`, `apps/api/scripts/sync-statuses-from-media.js` | synchronisation ; test `test/integration/sync-statuses-from-media.test.js` |
+| `deploy/bin/set-media-source.sh <uid> --media-instance <nom> --product <p> [--ads-secret <s> [--ads-host <h>]] \| --check \| --unset` | source media de l'instance (`MEDIA_DATABASE_URL`, `MEDIA_PRODUCTS`, `ADS_DATABASE_URL` dans son `.env`), § 7 |
+| job `media_campaigns_import` (scheduler, toutes les heures) ; `apps/api/scripts/import-media-campaigns.js [--dry-run]` | import régulier des campagnes DEM (§ 7) ; règles dans `apps/api/src/migration/mediaCampaigns.js`, test `test/integration/media-campaigns-import.test.js` |
 
-## 7. API de transition (appels faits à media pour un produit basculé)
+## 7. Transition : import régulier des campagnes (DEM) et source media de l'instance
+
+Tant que les campagnes sont gérées dans toolso-ads (base commune à tous les sites media), chaque instance issue d'un
+produit media importe elle-même les DEM disponibles pour ce produit : les sites basculés et les sites témoins restés sur
+media reçoivent ainsi les mêmes campagnes.
+
+### Source media de l'instance
+
+Convention commune aux jobs de transition (import des campagnes, synchronisation des statuts…) : trois variables dans le
+`.env` de l'instance (mode 600), écrites par `set-media-source.sh` à partir des secrets AWS (rien n'est affiché) :
+
+| Variable | Contenu |
+|---|---|
+| `MEDIA_DATABASE_URL` | base media (secret `media-<instance media>`), `?sslmode=no-verify` par défaut |
+| `MEDIA_PRODUCTS` | uid(s) du ou des produits media de l'instance, séparés par des virgules |
+| `ADS_DATABASE_URL` | base ads (secret `--ads-secret`, hôte remplacé par `--ads-host` : le proxy RDS n'est joignable que dans le VPC AWS) |
+
+```bash
+sudo bin/set-media-source.sh <uid> --media-instance <nom> --product <produit> \
+  --ads-secret toolso-ads-readonly --ads-host <cluster de la base ads>   # recrée les conteneurs de l'instance
+sudo bin/set-media-source.sh <uid> --check     # hôtes et produits (identifiants masqués)
+sudo bin/set-media-source.sh <uid> --unset     # fin de la transition : les jobs ne font plus rien
+```
+
+Les connexions sont ouvertes en lecture seule (`default_transaction_read_only`), mais le compte du secret peut avoir plus
+de droits : préférer un compte réellement en lecture seule quand il existe.
+
+### Job `media_campaigns_import`
+
+Planifié **toutes les heures** (`25 * * * *` UTC, `config/schedules.json`) dans le scheduler de l'instance (verrou
+PostgreSQL, journal de l'instance, configuration de son `.env`), plutôt qu'un cron hôte : rien à installer par instance,
+et il ne fait rien sans les trois variables ci-dessus. Horaire plutôt que quotidien : media choisit la publicité au moment
+de chaque envoi ; une campagne coupée dans toolso-ads est ainsi désactivée dans l'heure. Désactivation : `JOBS_DISABLED=media_campaigns_import`.
+
+À chaque passage, pour les publicités `dem` / `dem_template` qui ciblent un produit de `MEDIA_PRODUCTS` :
+
+| Publicité dans media | Contenu v2 |
+|---|---|
+| disponible (règles ci-dessous), jamais importée | `Content` marketing **actif** créé (HTML converti comme en § 1 bis) |
+| disponible, déjà importée (ou reprise par `--contents`) | mis à jour si le HTML, l'objet, les filtres… ont changé ; réactivé (sauf contenu suspendu par la v2) |
+| plus disponible (désactivée, archivée, terminée, hors période, plafond quotidien atteint…) | désactivé |
+| supprimée ou ne ciblant plus le produit | désactivé |
+| jamais disponible | pas importée |
+
+Règles de disponibilité reprises de media (`AdService` filtre `available` + `bestAd`, heure de Paris) : publicité
+`enabled` et de statut `active` / `learning` / `limited` ; groupe `enabled` et `active` ; campagne `enabled` ; annonceur du
+client (paramètre media `advertisers`) ou campagne `public` d'un autre annonceur ; période `distribution_settings.period`
+(MM-JJ, à cheval sur l'année possible), `start` et `end` ; `ad_group.support_settings.productIds` ; `ad.support_settings.slotNames` ;
+`daily_capping_requests` comparé à `ad_group.today_requests`.
+
+Traduits en réglages v2 : jours de diffusion (`distribution_settings.days`) → filtre de contenu `daysInclude` ; audience du
+groupe (`audience_settings` : âge, sexe, préfixes de code postal, date de naissance, ESP, champ du contact, arbres `and`)
+→ `Content.config.filters` ; `weight` → `config.weight` ; `end` → `Content.endDate`. Sans équivalent : plafonds totaux
+(`capping_requests`, `capping_impressions`, `capping_clicks`) et plafonds quotidiens de clics / impressions, calculés par
+media sur ses statistiques (compte rendu `unsupported`, la publicité reste active) ; audience non traduisible (`or` à
+plusieurs branches, `email_status`) : contenu créé **inactif** (`unavailable.audience`), à régler à la main.
+
+**utm** : media ne calcule pas les utm, ils sont écrits dans les liens des publicités :
+`utm_campaign={{campaign.id}}-{{ad_group.id}}-{{ad.id}}&utm_source={{product.uid}}` (relevé du 23/11/2026 : 558 liens sur
+676 portant un `utm_campaign`, les autres sont des valeurs fixes de l'annonceur). La conversion les résout avec les mêmes
+valeurs que media à l'envoi (identifiants media, uid du produit media), par exemple `utm_campaign=3631-59640-59838&utm_source=<produit>`.
+Ce que media ajoute à la redirection d'un clic (`tsclid`) n'est pas reproduit.
+
+Mode d'envoi (`MEDIA_CAMPAIGNS_SCHEDULES` dans le `.env`) : `none` (défaut) = **sans envoi**, les contenus sont créés et
+tenus à jour mais rattachés à aucune planification (avant la bascule) ; `<id>[,<id>…]` = chaque contenu importé est
+rattaché à ces planifications v2 (créneaux DEM), à régler le jour de la bascule.
+
+Garde-fous : un contenu dont `config.media.manual` vaut `true` n'est plus touché par l'import (repris à la main) ;
+`config.media.sync` garde l'empreinte, la date, la disponibilité et les raisons du dernier passage.
+
+```bash
+# simulation (transaction annulée), compte rendu JSON avec quelques contenus et leurs utm
+bin/compose.sh <uid> run --rm --no-deps api node scripts/import-media-campaigns.js --dry-run --samples 10
+# passage réel immédiat (sinon : à la prochaine heure)
+bin/compose.sh <uid> run --rm --no-deps api node scripts/run-job.js media_campaigns_import
+bin/psql.sh <uid> -c "SELECT \"isActive\", count(*) FROM \"Content\" WHERE config->'media'->>'type' = 'dem' GROUP BY 1"
+```
+
+## 8. API de transition (appels faits à media pour un produit basculé)
 
 Après la bascule, les sites et le CRM du client continuent un temps d'appeler l'API REST de media
 (`https://<api media>/v1/…`, servie par l'EC2 de l'instance media : nginx → Express `backend/bin/api.js`, port 4000 ; ni

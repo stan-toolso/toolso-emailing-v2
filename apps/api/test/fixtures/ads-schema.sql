@@ -1,5 +1,5 @@
 -- Sous-ensemble de la base ads de toolso-media (secret toolso-ads ; modèles backend/services/storage/models/ads/*.js) :
--- les tables lues par src/migration/mediaContents.js pour les DEM. Types déduits des modèles (pas de schéma SQL dans le dépôt media).
+-- les tables lues par src/migration/mediaContents.js et mediaCampaigns.js pour les DEM. Types déduits des modèles (pas de schéma SQL dans le dépôt media).
 CREATE TABLE advertiser (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name character varying(255),
@@ -54,6 +54,7 @@ CREATE TABLE ad_group (
     customs jsonb,
     last_stats jsonb,
     demographic_stats jsonb,
+    today_requests integer,
     created_at timestamp with time zone,
     updated_at timestamp with time zone
 );

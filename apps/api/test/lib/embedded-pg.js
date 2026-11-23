@@ -32,6 +32,8 @@ const startEmbeddedPostgres = async ({ databaseDir, port, persistent = true, dat
     user: USER,
     password: PASSWORD,
     persistent,
+    // node_modules installé depuis un cache (liens physiques) : les liens symboliques des bibliothèques natives sont recréés au besoin
+    autoRehydrateSymlinks: true,
     initdbFlags: ['--encoding=UTF8', '--locale=C'],
     onLog: quiet ? () => {} : (m) => process.stdout.write(String(m)),
     onError: quiet ? () => {} : (m) => process.stderr.write(String(m))

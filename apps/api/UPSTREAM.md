@@ -62,11 +62,12 @@ Les scripts d'exploitation de la v1 (`scripts/do_*.js`, liés à AWS et à des b
 
 Migration depuis AWS (appelés par `deploy/bin/migrate-mirrors.sh` et `deploy/bin/replay-sqs-actions.sh`, voir `docs/05-migration-depuis-aws.md`) :
 - `import-mirrors.js --dir <pages> [--bodies-dir <corps S3>]` : import des items DynamoDB `toolso-emailing-mirrors` (JSON du CLI ou NDJSON) dans la table `Mirror`, upsert. La conversion est dans `src/migration/dynamoMirror.js` : en v1, `CompressedBody` était le **texte base64** du deflate (`zlib.deflateSync(html).toString('base64')` passé à un attribut binaire), donc doublement encodé à la lecture par le CLI ; au-delà de 990 octets il était retiré de l'item et le même texte écrit dans S3 `toolso-emailing-mirror-body` sous la clé `mirrorId` (seulement si le mail contenait le lien miroir). La table `Mirror` stocke le deflate brut.
+- `import-media-campaigns.js [--dry-run]` et job planifié `media_campaigns_import` (nouveau, horaire) : import des campagnes DEM de toolso-ads en contenus actifs pendant la transition depuis toolso-media (`src/migration/mediaCampaigns.js`, `docs/06-migration-depuis-media.md` § 7) ; sans `MEDIA_DATABASE_URL` / `ADS_DATABASE_URL` / `MEDIA_PRODUCTS`, il ne fait rien.
 - `enqueue-actions.js --file <ndjson>` : insère dans `ActionQueue` des actions `{ type, payload }` ou des messages SQS bruts (`Body`), format identique entre la file SQS `actions_<uid>` de la v1 et la v2.
 
 ## Ajouts
 
-- API de transition toolso-media (`src/api/mediaCompat/`, montée sur `/v1`) : routes, clés et réponses de l'API REST de media (`/v1/:product_uid/contacts…`, `/v1/:product_uid/unsubscriptions/`, `/v1/source/contacts…`, `/v1/contacts/export`, `/v1/ad/click/conversion` transférée à media), traduites vers `InscriptionService`, `ContactService`, `ContactEventService`. Voir `docs/06-migration-depuis-media.md` § 7. Variables `MEDIA_PRODUCT_UIDS`, `MEDIA_CONVERSION_URL`.
+- API de transition toolso-media (`src/api/mediaCompat/`, montée sur `/v1`) : routes, clés et réponses de l'API REST de media (`/v1/:product_uid/contacts…`, `/v1/:product_uid/unsubscriptions/`, `/v1/source/contacts…`, `/v1/contacts/export`, `/v1/ad/click/conversion` transférée à media), traduites vers `InscriptionService`, `ContactService`, `ContactEventService`. Voir `docs/06-migration-depuis-media.md` § 8. Variables `MEDIA_PRODUCT_UIDS`, `MEDIA_CONVERSION_URL`.
 
 ## Tests
 

@@ -12,4 +12,4 @@ principale au 2026-11-07, `e60af9f`) — `git am deploy/media-relay/0001-relais-
 - Non relayés : `/v1/ad/click/conversion` (publicités media) et les webhooks.
 
 Sans réglage renseigné, le patch ne change rien : il peut être déployé avant la première bascule. Activation et retour
-arrière par produit : `docs/06-migration-depuis-media.md` § 7.
+arrière par produit : `docs/06-migration-depuis-media.md` § 8.
