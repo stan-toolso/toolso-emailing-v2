@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Synchronisation inverse instance v2 → toolso-media (retour arrière d'un produit basculé ; voir
- * deploy/bin/sync-statuses-to-media.sh et docs/06-migration-depuis-media.md § 8) :
+ * deploy/bin/sync-statuses-to-media.sh et docs/06-migration-depuis-media.md § 9) :
  *   MEDIA_DATABASE_URL=postgres://… node scripts/sync-statuses-to-media.js --product <uid>[,<uid>…] --since <AAAA-MM-JJ[THH:MM]>
  *                                        [--apply] [--batch-size 1000] [--inscriptions-csv]
  * Simulation par défaut (connexion media en lecture seule). --apply écrit dans media : MEDIA_DATABASE_URL doit alors être

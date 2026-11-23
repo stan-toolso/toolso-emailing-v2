@@ -5,7 +5,7 @@ const media = require('./mediaDatabase');
 const log = require('../util/log').getLogger('MediaReverseSync');
 
 /**
- * Synchronisation inverse instance v2 → toolso-media, pour le retour arrière d'un produit basculé (docs/06 § 8).
+ * Synchronisation inverse instance v2 → toolso-media, pour le retour arrière d'un produit basculé (docs/06 § 9).
  *
  * Pendant que le produit était servi par la v2, les désabonnements, plaintes et bounces sont arrivés dans la v2 seulement.
  * Avant de réactiver les créneaux media, ce module les reporte dans la base media, comme media les aurait enregistrés lui-même

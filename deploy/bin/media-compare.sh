@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tableau comparatif hebdomadaire base migrée / base témoin pendant la bascule de produits toolso-media vers des instances v2
-# (voir docs/06-migration-depuis-media.md § 7). Lecture seule, des deux côtés.
+# (voir docs/06-migration-depuis-media.md § 9). Lecture seule, des deux côtés.
 #
 #   sudo bin/media-compare.sh --media-instance <nom> --migrated <uid>=<produit>[@AAAA-MM-JJ] … --witness <produit> …
 #                             [--weeks 8] [--format csv|json|table] [--revenue <fichier.csv>] [--output <fichier>]
