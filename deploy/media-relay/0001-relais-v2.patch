@@ -1,0 +1,255 @@
+From 49032cd3723582db7670641de378f5810013eaa9 Mon Sep 17 00:00:00 2001
+From: stan-toolso <stan-toolso@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 08:54:05 +0000
+Subject: [PATCH] =?UTF-8?q?API=20REST=20:=20relais=20des=20produits=20basc?=
+ =?UTF-8?q?ul=C3=A9s=20vers=20Toolso=20Emailing=20v2=20(r=C3=A9glage=20v2R?=
+ =?UTF-8?q?elayUrl)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Pour un produit dont le réglage v2RelayUrl est renseigné (ex. https://db1.exemple.com/api/<uid>),
+les appels /v1/:product_uid/contacts…, /unsubscriptions, /source/contacts… et /contacts/export
+sont transmis tels quels à <v2RelayUrl>/v1/… (même clé, même corps) et la réponse de la v2,
+au même format, est renvoyée. Réglage vide : comportement inchangé. Si la v2 ne répond pas
+(délai V2_RELAY_TIMEOUT_MS, 10 s, ou erreur 5xx), l'appel est traité par media comme avant.
+Les conversions et webhooks ne sont pas relayés.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ backend/api/rest/relayToV2.js         | 134 ++++++++++++++++++++++++++
+ backend/api/rest/restExpressRouter.js |  30 +++++-
+ backend/config/defaultSettings.json   |   1 +
+ 3 files changed, 160 insertions(+), 5 deletions(-)
+ create mode 100644 backend/api/rest/relayToV2.js
+
+diff --git a/backend/api/rest/relayToV2.js b/backend/api/rest/relayToV2.js
+new file mode 100644
+index 0000000..144a902
+--- /dev/null
++++ b/backend/api/rest/relayToV2.js
+@@ -0,0 +1,134 @@
++import fetch from "node-fetch";
++import getLogger from "../../services/Log.js";
++import { getCachedSettings } from "../../services/SettingsService.js";
++import Product from "../../services/storage/models/Product.js";
++
++const log = getLogger("relayToV2");
++
++// Délai maximal d'un appel relayé ; au-delà, la requête est traitée localement
++const RELAY_TIMEOUT_MS = parseInt(
++  process.env.V2_RELAY_TIMEOUT_MS ?? "10000",
++  10
++);
++const FORWARDED_HEADERS = [
++  "apikey",
++  "api-key",
++  "user-agent",
++  "x-forwarded-for",
++];
++
++/**
++ * Produit visé par la requête : paramètre :product_uid (routes produit), source de la clé (routes source) ou
++ * filter.product_id (export).
++ */
++const resolveProduct = async (req) => {
++  if (req.product) {
++    return req.product;
++  }
++  if (req.source?.product_id) {
++    return await Product.findByPk(req.source.product_id);
++  }
++  if (req.query?.filter) {
++    try {
++      const filter = JSON.parse(req.query.filter);
++      if (filter?.product_id) {
++        return await Product.findByPk(parseInt(filter.product_id, 10));
++      }
++    } catch (e) {
++      return null;
++    }
++  }
++  return null;
++};
++
++/**
++ * Relais vers Toolso Emailing v2 d'un produit basculé (réglage produit `v2RelayUrl`, ex.
++ * https://db1.exemple.com/api/<uid>) : la requête est transmise telle quelle à `<v2RelayUrl>/v1<chemin>` (même
++ * méthode, même clé, même corps, mêmes paramètres) et la réponse de la v2, au même format que media, est renvoyée.
++ * Sans réglage, ou si la v2 ne répond pas, la requête est traitée par media comme avant (la synchronisation des statuts
++ * media → v2 et la reprise relancée rattrapent ces appels).
++ * À placer après les filtres d'accès (userFilter, productFilter, sourceFilter) : la clé est vérifiée par media puis
++ * par la v2 (clés reprises à l'identique).
++ */
++export default async function relayToV2(req, res, next) {
++  let product = null;
++  let target = null;
++  try {
++    product = await resolveProduct(req);
++    if (!product) {
++      return next();
++    }
++    const base = await getCachedSettings(product.id, "v2RelayUrl");
++    if (!base) {
++      return next();
++    }
++    if (
++      !req.get("apikey") &&
++      !req.get("api-key") &&
++      !(req.body && req.body.apikey)
++    ) {
++      log.warn(
++        `[${product.uid}] ${req.method} ${req.path} sans clé d'API (jeton media) : traité par media malgré le relais`
++      );
++      return next();
++    }
++    target = `${base.replace(/\/+$/, "")}/v1${req.url}`;
++  } catch (err) {
++    log.error(`Relais v2 : produit ou réglage illisible (${err.message})`, err);
++    return next();
++  }
++
++  const headers = { "x-media-relay": "1" };
++  for (const name of FORWARDED_HEADERS) {
++    const value = req.get(name);
++    if (value) {
++      headers[name] = value;
++    }
++  }
++  const hasBody = !["GET", "HEAD"].includes(req.method);
++  if (hasBody) {
++    headers["content-type"] = "application/json";
++  }
++  const controller = new AbortController();
++  const timer = setTimeout(() => controller.abort(), RELAY_TIMEOUT_MS);
++  try {
++    const response = await fetch(target, {
++      method: req.method,
++      headers,
++      body: hasBody ? JSON.stringify(req.body ?? {}) : undefined,
++      signal: controller.signal,
++      redirect: "manual",
++    });
++    if (response.status >= 500) {
++      throw new Error(`HTTP ${response.status}`);
++    }
++    const body = Buffer.from(await response.arrayBuffer());
++    log.info(
++      `[${product.uid}] ${req.method} ${req.path} relayé vers la v2 : ${response.status}`
++    );
++    if (req.contactSourceLog) {
++      req.contactSourceLog.response = {
++        relayed_to_v2: true,
++        status: response.status,
++      };
++      await req.contactSourceLog.save().catch(() => {});
++    }
++    res.status(response.status);
++    for (const name of ["content-type", "content-disposition"]) {
++      const value = response.headers.get(name);
++      if (value) {
++        res.setHeader(name, value);
++      }
++    }
++    res.send(body);
++  } catch (err) {
++    log.error(
++      `[${product.uid}] ${req.method} ${req.path} : relais v2 en échec (${
++        err.name === "AbortError" ? "délai dépassé" : err.message
++      }), traité par media`
++    );
++    next();
++  } finally {
++    clearTimeout(timer);
++  }
++}
+diff --git a/backend/api/rest/restExpressRouter.js b/backend/api/rest/restExpressRouter.js
+index 7e266d8..7cf12a6 100644
+--- a/backend/api/rest/restExpressRouter.js
++++ b/backend/api/rest/restExpressRouter.js
+@@ -19,38 +19,57 @@ import getContact from "./contact/getContact.js";
+ import exportContact from "./contact/exportContact.js";
+ import postPixelTrackingConsent from "./contact/postPixelTrackingConsent.js";
+ import postClickConversion from "./ad/postClickConversion.js";
++import relayToV2 from "./relayToV2.js";
+ 
+ var router = express.Router();
+ 
++// Produits basculés vers Toolso Emailing v2 (réglage produit v2RelayUrl) : relayToV2 transmet l'appel à l'instance v2.
++// Les conversions (base ads commune) et les webhooks restent traités ici.
++
+ router.post("/ad/click/conversion", postClickConversion);
+ 
+-router.get("/contacts/export", userFilter, exportContact);
++router.get("/contacts/export", userFilter, relayToV2, exportContact);
+ 
+-router.post("/source/contacts/", sourceFilter, sourcePostContact);
+-router.get("/source/contacts/check", sourceFilter, sourceGetCheck);
++router.post("/source/contacts/", sourceFilter, relayToV2, sourcePostContact);
++router.get("/source/contacts/check", sourceFilter, relayToV2, sourceGetCheck);
+ 
+ router.post("/webhook/brevo", postBrevo);
+ 
+ router.post("/webhook/brevo_common", postCommonBrevo);
+ 
+-router.post("/:product_uid/contacts/", userFilter, productFilter, postContact);
++router.post(
++  "/:product_uid/contacts/",
++  userFilter,
++  productFilter,
++  relayToV2,
++  postContact
++);
+ router.post(
+   "/:product_uid/contacts/pixel_tracking_consent",
+   userFilter,
+   productFilter,
++  relayToV2,
+   postPixelTrackingConsent
+ );
+-router.get("/:product_uid/contacts/check", userFilter, productFilter, getCheck);
++router.get(
++  "/:product_uid/contacts/check",
++  userFilter,
++  productFilter,
++  relayToV2,
++  getCheck
++);
+ router.get(
+   "/:product_uid/contacts/:email",
+   userFilter,
+   productFilter,
++  relayToV2,
+   getContact
+ );
+ router.delete(
+   "/:product_uid/contacts/",
+   userFilter,
+   productFilter,
++  relayToV2,
+   deleteContact
+ );
+ 
+@@ -58,6 +77,7 @@ router.post(
+   "/:product_uid/unsubscriptions/",
+   userFilter,
+   productFilter,
++  relayToV2,
+   postUnsub
+ );
+ 
+diff --git a/backend/config/defaultSettings.json b/backend/config/defaultSettings.json
+index e10ece5..81be955 100644
+--- a/backend/config/defaultSettings.json
++++ b/backend/config/defaultSettings.json
+@@ -8,6 +8,7 @@
+   "openaiApiKey": "",
+ 
+   "timezone": "Europe/Paris",
++  "v2RelayUrl": "",
+   "siteName": "Site Name",
+   "siteUrl": "http://localhost:3000",
+   "siteDescription": "",
+-- 
+2.39.5
+

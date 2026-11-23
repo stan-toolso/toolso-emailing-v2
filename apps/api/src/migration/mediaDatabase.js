@@ -280,9 +280,60 @@ const countsFromEvents = (events) => {
   return stats;
 };
 
+/**
+ * Copie les clés d'API media (table api_key, globale à la base media) dans `ApiKey`, réservées à l'API de transition
+ * (permissions.scope = 'media-compat'). Une clé déjà présente est laissée telle quelle.
+ */
+const copyApiKeys = async (source, ApiKey, transaction) => {
+  const stats = { read: 0, created: 0, existing: 0 };
+  const exists = await source.query(`SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'api_key'`);
+  if (exists.rowCount === 0) {
+    return stats;
+  }
+  const { rows } = await source.query('SELECT id, name, key FROM api_key WHERE key IS NOT NULL ORDER BY id');
+  stats.read = rows.length;
+  for (const row of rows) {
+    const found = await ApiKey.findOne({ where: { apiKey: row.key }, transaction });
+    if (found) {
+      stats.existing++;
+      continue;
+    }
+    await ApiKey.create({ name: `media: ${(row.name || `clé ${row.id}`).trim()}`, apiKey: row.key, enabled: true, permissions: { scope: 'media-compat', media: { id: row.id } } }, { transaction });
+    stats.created++;
+  }
+  return stats;
+};
+
+/**
+ * Seulement les clés d'API (avant la bascule : le relais d'API doit trouver les clés avant la reprise des contacts).
+ * @param {{ sequelize: import('sequelize').Sequelize, sourceUrl?: string, source?: import('pg').Client, dryRun?: boolean }} options
+ */
+const migrateApiKeysFromMedia = async ({ sequelize, sourceUrl, source: client, dryRun = false }) => {
+  const source = client ?? (await openSource(sourceUrl));
+  const t = await sequelize.transaction();
+  try {
+    const stats = await copyApiKeys(source, sequelize.models.ApiKey, t);
+    stats.dryRun = dryRun;
+    if (dryRun) {
+      await t.rollback();
+    } else {
+      await t.commit();
+    }
+    return stats;
+  } catch (err) {
+    await t.rollback();
+    throw err;
+  } finally {
+    if (!client) {
+      await source.end();
+    }
+  }
+};
+
 const newStats = () => ({
   products: [],
   sources: { read: 0, created: 0, reused: 0, apiKeyConflicts: 0 },
+  apiKeys: { read: 0, created: 0, existing: 0 },
   contacts: { read: 0, invalidEmail: 0, duplicates: 0, existing: 0, created: 0, byStatus: {} },
   inscriptions: { read: 0, created: 0, synthesized: 0 },
   events: { created: 0, guaranteed: 0 },
@@ -309,10 +360,10 @@ const newStats = () => ({
  * @param {(progress: object) => void} [options.onProgress]
  */
 const migrateFromMedia = async (options) => {
-  const { sequelize, batchSize = DEFAULT_BATCH_SIZE, sinceDays = DEFAULT_SINCE_DAYS, dryRun = false, skipBlacklist = false, skipMessages = false, onProgress = () => {} } = options;
+  const { sequelize, batchSize = DEFAULT_BATCH_SIZE, sinceDays = DEFAULT_SINCE_DAYS, dryRun = false, skipBlacklist = false, skipMessages = false, skipApiKeys = false, onProgress = () => {} } = options;
   const timezone = options.timezone || process.env.TZ || DEFAULT_TIMEZONE;
   const now = options.now ?? new Date();
-  const { Contact, ContactInscription, ContactSource, ContactEvent, ContactEvents, BlacklistedContact, ContactMessage } = sequelize.models;
+  const { Contact, ContactInscription, ContactSource, ContactEvent, ContactEvents, BlacklistedContact, ContactMessage, ApiKey } = sequelize.models;
   const stats = newStats();
   stats.dryRun = dryRun;
 
@@ -366,6 +417,15 @@ const migrateFromMedia = async (options) => {
         }
         sourceIds.set(row.id, target.id);
       }
+      await finish(t);
+    }
+
+    // ---------- clés d'API (table api_key, globale à la base media) ----------
+    // Reprises pour l'API de transition (/v1/…, mêmes clés que media) : permissions.scope = 'media-compat', elles
+    // n'ouvrent ni le GraphQL ni les routes v2.
+    if (!skipApiKeys) {
+      const t = await transaction();
+      stats.apiKeys = await copyApiKeys(source, ApiKey, t);
       await finish(t);
     }
 
@@ -660,6 +720,7 @@ const migrateFromMedia = async (options) => {
 
 module.exports = {
   migrateFromMedia,
+  migrateApiKeysFromMedia,
   openSource,
   listProducts,
   resolveProducts,

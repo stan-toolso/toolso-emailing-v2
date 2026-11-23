@@ -6,6 +6,8 @@
 #   sudo bin/migrate-from-media.sh <uid> --product <p>[,<p>…] --inventory [source]   ce qui sera repris / non repris
 #   sudo bin/migrate-from-media.sh <uid> --product <p>[,<p>…] --dry-run   [source]   simulation (rien n'est écrit)
 #   sudo bin/migrate-from-media.sh <uid> --product <p>[,<p>…] [--dump] [source]      reprise des contacts
+#   sudo bin/migrate-from-media.sh <uid> --api-keys [--dry-run] [source]             clés d'API media seules (API de
+#                                                                                      transition /v1/… ; avant le relais)
 #   sudo bin/migrate-from-media.sh <uid> --product <p> --contents [--articles-only | --dems-only] [source] [ads]
 #                                                                                      reprise des contenus (articles → Content
 #                                                                                      newsletter, DEM → Content marketing)
@@ -21,7 +23,7 @@
 #   --since-days N (articles publiés depuis N jours).
 # Options : --since-days N (envois repris en événements, défaut 90 ; 0 = seulement les événements de statut),
 #           --dump (pg_dump -Fc de la base media dans BACKUP_DIR/media-migration/ avant la reprise, archive),
-#           --skip-blacklist, --skip-messages, --batch-size N, --ssl-mode <require|no-verify|disable> (défaut no-verify :
+#           --skip-blacklist, --skip-messages, --skip-api-keys, --batch-size N, --ssl-mode <require|no-verify|disable> (défaut no-verify :
 #           connexion chiffrée sans vérification du certificat, comme PGSSLMODE=require), --yes.
 # Prérequis : instance créée et démarrée (bin/add-database.sh <uid> …) ; la base media joignable depuis les conteneurs de ce
 #   serveur (groupe de sécurité RDS) ; CLI aws et jq pour --media-instance. Un contact déjà présent (même e-mail) dans la base
@@ -35,7 +37,7 @@ MEDIA_AWS_REGION="${MEDIA_AWS_REGION:-eu-west-3}"
 
 uid="" products="" source_url="${MEDIA_DATABASE_URL:-}" media_instance="" since_days="" batch_size="" ssl_mode="no-verify"
 ads_url="${ADS_DATABASE_URL:-}" ads_secret="" ads_host_override="" contents=0 articles_only=0 dems_only=0 all_articles=0 include_disabled=0
-mode="migrate" do_dump=0 skip_blacklist=0 skip_messages=0
+mode="migrate" do_dump=0 skip_blacklist=0 skip_messages=0 skip_api_keys=0 api_keys_only=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --product) products="${products:+$products,}${2:-}"; shift 2 ;;
@@ -58,8 +60,10 @@ while [[ $# -gt 0 ]]; do
     --dump) do_dump=1; shift ;;
     --skip-blacklist) skip_blacklist=1; shift ;;
     --skip-messages) skip_messages=1; shift ;;
+    --skip-api-keys) skip_api_keys=1; shift ;;
+    --api-keys) api_keys_only=1; shift ;;
     --yes) export ASSUME_YES=1; shift ;;
-    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
     --*) die "Option inconnue : $1" ;;
     *) [[ -z "$uid" ]] || die "Un seul identifiant de base attendu."; uid="$1"; shift ;;
   esac
@@ -69,7 +73,7 @@ require_instance "$uid"
 [[ "$ssl_mode" =~ ^(require|no-verify|disable)$ ]] || die "--ssl-mode attend require, no-verify ou disable."
 [[ -z "$since_days" || "$since_days" =~ ^[0-9]+$ ]] || die "--since-days attend un entier ≥ 0."
 [[ -z "$batch_size" || "$batch_size" =~ ^[1-9][0-9]*$ ]] || die "--batch-size attend un entier ≥ 1."
-[[ "$mode" == "list" || -n "$products" ]] || die "Préciser le ou les produits media à reprendre : --product <uid>[,<uid>…] (liste : --list-products)."
+[[ "$mode" == "list" || "$api_keys_only" == "1" || -n "$products" ]] || die "Préciser le ou les produits media à reprendre : --product <uid>[,<uid>…] (liste : --list-products)."
 container_running postgres || die "PostgreSQL n'est pas démarré (bin/compose.sh platform up -d)."
 docker image inspect toolso-emailing-api:latest >/dev/null 2>&1 || die "Image toolso-emailing-api absente : bin/add-database.sh $uid … la construit."
 
@@ -136,6 +140,7 @@ args=()
 [[ -n "$batch_size" ]] && args+=(--batch-size "$batch_size")
 [[ "$skip_blacklist" == "1" ]] && args+=(--skip-blacklist)
 [[ "$skip_messages" == "1" ]] && args+=(--skip-messages)
+[[ "$skip_api_keys" == "1" ]] && args+=(--skip-api-keys)
 case "$mode" in
   list) args+=(--list-products) ;;
   inventory) args+=(--inventory) ;;
@@ -149,6 +154,15 @@ run_node() {
 run_node_contents() {
   compose_instance "$uid" run --rm --no-deps -e MEDIA_DATABASE_URL -e ADS_DATABASE_URL api node scripts/migrate-contents-from-media.js "$@"
 }
+
+if [[ "$api_keys_only" == "1" ]]; then
+  [[ "$mode" == "migrate" || "$mode" == "dry-run" ]] || die "--api-keys s'utilise avec --dry-run ou sans mode."
+  kargs=(--api-keys-only)
+  [[ "$mode" == "dry-run" ]] && kargs+=(--dry-run)
+  info "Clés d'API media → emailing_$uid (réservées à l'API de transition /v1/…)"
+  run_node "${kargs[@]}"
+  exit $?
+fi
 
 if [[ "$contents" == "1" ]]; then
   [[ "$mode" == "migrate" || "$mode" == "dry-run" ]] || die "--contents s'utilise avec --dry-run ou sans mode (reprise)."

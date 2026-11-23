@@ -53,6 +53,7 @@ Seuls les adaptateurs d'infrastructure changent. Ce document liste chaque écart
 - `inscription_filters/DangerousEsps.js` : 67 adresses e-mail individuelles retirées de la liste de domaines (le filtre ne compare que le domaine : elles étaient sans effet).
 - `ContactStatusService.js` : le comportement câblé sur un `RESOURCE_UID` précis devient l'option `CONTACT_EVENTS_IGNORE_LAST_IMPORTED_ID=true`.
 - Données de test, exemples de documentation et tests Cypress : plus aucun nom de client, identifiant de compte ni adresse personnelle.
+- `api/middlewares/ApiKeyMiddleware.js` : une clé dont `permissions.scope` vaut `media-compat` (clés reprises de toolso-media) n'authentifie que les routes `/v1/…` de l'API de transition.
 - `ToolsoRouter.js` : un commentaire contenant des identifiants AWS (clé `AKIA…` d'un compte client) a été **supprimé** ; ces clés doivent être révoquées côté AWS.
 
 ## Scripts
@@ -63,8 +64,12 @@ Migration depuis AWS (appelés par `deploy/bin/migrate-mirrors.sh` et `deploy/bi
 - `import-mirrors.js --dir <pages> [--bodies-dir <corps S3>]` : import des items DynamoDB `toolso-emailing-mirrors` (JSON du CLI ou NDJSON) dans la table `Mirror`, upsert. La conversion est dans `src/migration/dynamoMirror.js` : en v1, `CompressedBody` était le **texte base64** du deflate (`zlib.deflateSync(html).toString('base64')` passé à un attribut binaire), donc doublement encodé à la lecture par le CLI ; au-delà de 990 octets il était retiré de l'item et le même texte écrit dans S3 `toolso-emailing-mirror-body` sous la clé `mirrorId` (seulement si le mail contenait le lien miroir). La table `Mirror` stocke le deflate brut.
 - `enqueue-actions.js --file <ndjson>` : insère dans `ActionQueue` des actions `{ type, payload }` ou des messages SQS bruts (`Body`), format identique entre la file SQS `actions_<uid>` de la v1 et la v2.
 
+## Ajouts
+
+- API de transition toolso-media (`src/api/mediaCompat/`, montée sur `/v1`) : routes, clés et réponses de l'API REST de media (`/v1/:product_uid/contacts…`, `/v1/:product_uid/unsubscriptions/`, `/v1/source/contacts…`, `/v1/contacts/export`, `/v1/ad/click/conversion` transférée à media), traduites vers `InscriptionService`, `ContactService`, `ContactEventService`. Voir `docs/06-migration-depuis-media.md` § 7. Variables `MEDIA_PRODUCT_UIDS`, `MEDIA_CONVERSION_URL`.
+
 ## Tests
 
 - `npm run test:unit` : les 6 suites Jest d'origine (32 tests, sequelize mocké).
-- `npm test` : idem + `test/integration/instance.test.js` sur PostgreSQL embarqué (schéma, health, upload, miroir, tracking → file → worker, désabonnement, webhook, file d'actions, verrou du scheduler, purges), `test/integration/import-mirrors.test.js` et `test/integration/enqueue-actions.test.js` (scripts de migration), `test/services/dynamoMirror.test.js` (décodage des corps v1).
+- `npm test` : idem + `test/integration/instance.test.js` sur PostgreSQL embarqué (schéma, health, upload, miroir, tracking → file → worker, désabonnement, webhook, file d'actions, verrou du scheduler, purges), `test/integration/import-mirrors.test.js` et `test/integration/enqueue-actions.test.js` (scripts de migration), `test/services/dynamoMirror.test.js` (décodage des corps v1), `test/integration/media-compat.test.js` (API de transition media).
 - `npm run cucumber` : scénario `qualityScore.feature` d'origine.
