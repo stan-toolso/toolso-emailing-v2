@@ -576,6 +576,8 @@ Brevo sans clé.
 | `email_sender` (nom, adresse, nom d'affichage, réponse, `unsubscribe_mail_to`) | `Sender` rattaché à son routeur ; `trackingDomain` = `--tracking-domain`, défaut `https://<1er de TRACKING_HOSTS>` |
 | `email_sending_config.config.espSenders` (ESP → expéditeurs et poids) | `SendingConfig.config.espConfigs` : ESP regroupés par liste d'expéditeurs identique, `default` en premier |
 | `espScores[esp].minScore`, `auto`, `target_or` | `minScoreByEsp[esp]` (même échelle : `activityScore` est repris tel quel), `autoUpdates[esp] = { enabled, minOpenRate }` |
+| ESP présent dans `espScores` mais pas dans `espSenders` (envoyé par les expéditeurs par défaut, à son propre seuil) | listé dans `esps` du groupe par défaut, avec son `minScoreByEsp` |
+| `espScores[esp].minNewScore`, `maxNewRequests` | `minNewScoreByEsp[esp]` = `minNewScore` (101, donc aucun nouveau contact, si `maxNewRequests` = 0) ; le plafond `maxNewRequests` n'existe pas en v2 (avertissement) |
 | `email_slot` `recurrent` / `recurrent_schedule` | `Schedule` `recurrent` (`rate = day`), heure fixe, **désactivée** ; `maxDaySlots` N → N planifications |
 | `email_slot` `inscription` (message de bienvenue) | `Schedule` `inscription` désactivée ; rattachée aux sources qui la citent (`contact_source.email_slot_ids` → `ContactSource.apiScheduleIds`) |
 
@@ -584,6 +586,12 @@ Heures : media envoie un créneau `recurrent` sans `sending_time_strategy = manu
 (globale ou `<id créneau>=HH:MM[,…]`), à défaut 09:00 puis +3 h (le repli de media sans statistiques). La simulation affiche
 les heures d'envoi observées dans media sur 14 jours (`observedHours`). Fuseau : celui de l'instance (réglage `timezone`,
 Europe/Paris par défaut, comme media).
+
+Volumes : media choisit l'heure de chaque contact et plafonne les nouveaux contacts par envoi ; une planification v2
+à heure fixe envoie chaque jour à tous les contacts au-dessus du seuil. **Avant d'activer une planification, comparer
+les volumes par ESP** (envois media par jour sur 14 jours, colonne `esp` de `email` ; cible v2 : `getFilterOfSchedule` +
+`ContactService.countAll`) et recaler `minScoreByEsp` / `minNewScoreByEsp`. Apple est sélectionné dans media sur son score
+d'ouverture (`openScore`), absent de la v2 : son seuil est à recaler systématiquement.
 
 Non repris (avertissements) : filtres de contacts des créneaux (format media), délai du message de bienvenue
 (`delay_time`), plafonds d'activation media (`maxNewRequests`, `newCapping`, `newRatio` → réglages d'activation v2), contenus

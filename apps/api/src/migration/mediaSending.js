@@ -148,6 +148,17 @@ const convertSendingConfig = (mediaConfig, senderIds) => {
     const s = espScores[esp] ?? espScores.default;
     return s && typeof s.minScore === 'number' ? s : null;
   };
+  // ESP qui ont un seuil propre (espScores) sans expéditeurs propres (espSenders) : media les envoie avec les
+  // expéditeurs par défaut, mais à leur seuil. On les liste dans le groupe par défaut, sinon leur seuil serait perdu.
+  const defaultGroup = [...groups.values()].find((g) => g.isDefault);
+  if (defaultGroup) {
+    const grouped = new Set([...groups.values()].flatMap((g) => g.esps));
+    for (const esp of Object.keys(espScores)) {
+      if (esp !== 'default' && !grouped.has(esp) && scoreOf(esp)) {
+        defaultGroup.esps.push(esp);
+      }
+    }
+  }
   const espConfigs = [];
   for (const group of groups.values()) {
     const esps = group.isDefault ? ['default', ...group.esps] : group.esps;
@@ -156,17 +167,32 @@ const convertSendingConfig = (mediaConfig, senderIds) => {
       default: group.isDefault,
       senders: group.senders.map((s) => {
         const minScoreByEsp = {};
+        const minNewScoreByEsp = {};
         const autoUpdates = {};
         for (const esp of esps) {
           const score = scoreOf(esp);
           if (score) {
             minScoreByEsp[esp] = score.minScore;
+            // nouveaux contacts : seuil media (minNewScore) ; aucun si media n'en autorise aucun (maxNewRequests = 0)
+            if (Number(score.maxNewRequests) === 0) {
+              minNewScoreByEsp[esp] = 101;
+            } else if (typeof score.minNewScore === 'number') {
+              minNewScoreByEsp[esp] = score.minNewScore;
+            }
             autoUpdates[esp] = { enabled: !!score.auto, minOpenRate: typeof score.target_or === 'number' ? score.target_or : 19 };
           }
         }
-        return { senderId: senderIds.get(Number(s.id)), weight: Number(s.weight ?? 100), minScoreByEsp, autoUpdates };
+        return { senderId: senderIds.get(Number(s.id)), weight: Number(s.weight ?? 100), minScoreByEsp, minNewScoreByEsp, autoUpdates };
       })
     });
+  }
+  for (const [esp, score] of Object.entries(espScores)) {
+    if (score && score.score === 'openScore') {
+      warnings.push(`ESP ${esp} : media le sélectionne sur son score d'ouverture (openScore), la v2 sur activityScore : vérifier les volumes`);
+    }
+    if (score && Number(score.maxNewRequests) > 0) {
+      warnings.push(`ESP ${esp} : plafond media de ${score.maxNewRequests} nouveaux contacts par envoi non repris (la v2 n'en a pas) : vérifier les volumes`);
+    }
   }
   // le groupe par défaut en premier (ContentSender prend le premier `default`, puis l'ESP exact)
   espConfigs.sort((a, b) => Number(b.default) - Number(a.default));

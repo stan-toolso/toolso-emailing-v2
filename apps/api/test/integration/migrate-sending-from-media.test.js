@@ -150,12 +150,40 @@ describe('fonctions pures', () => {
         esps: ['yahoo'],
         default: true,
         senders: [
-          { senderId: 12, weight: 100, minScoreByEsp: { default: 0.01, yahoo: 0.01 }, autoUpdates: { default: { enabled: false, minOpenRate: 19 }, yahoo: { enabled: false, minOpenRate: 19 } } }
+          { senderId: 12, weight: 100, minScoreByEsp: { default: 0.01, yahoo: 0.01 }, minNewScoreByEsp: {}, autoUpdates: { default: { enabled: false, minOpenRate: 19 }, yahoo: { enabled: false, minOpenRate: 19 } } }
         ]
       },
-      { esps: ['gmail'], default: false, senders: [{ senderId: 11, weight: 100, minScoreByEsp: { gmail: 0.02 }, autoUpdates: { gmail: { enabled: true, minOpenRate: 18 } } }] }
+      { esps: ['gmail'], default: false, senders: [{ senderId: 11, weight: 100, minScoreByEsp: { gmail: 0.02 }, minNewScoreByEsp: {}, autoUpdates: { gmail: { enabled: true, minOpenRate: 18 } } }] }
     ]);
     expect(warnings).toHaveLength(1);
+  });
+
+  test('convertSendingConfig : un ESP avec un seuil media mais sans expéditeurs propres garde son seuil (groupe par défaut)', () => {
+    const { espConfigs, warnings } = sending.convertSendingConfig(
+      {
+        espSenders: { default: { senders: [{ id: 2, weight: 100 }] }, gmail: { senders: [{ id: 1, weight: 100 }] } },
+        espScores: {
+          default: { minScore: 1 },
+          gmail: { minScore: 51.06, minNewScore: 49.26, maxNewRequests: 1 },
+          orange: { auto: true, minScore: 10.01, minNewScore: 1, maxNewRequests: 10, target_or: 18 },
+          apple: { score: 'openScore', minScore: 0 },
+          hotmail: { minScore: 5, maxNewRequests: 0 }
+        }
+      },
+      new Map([
+        [1, 11],
+        [2, 12]
+      ])
+    );
+    const def = espConfigs[0];
+    expect(def.default).toBe(true);
+    expect(def.esps).toEqual(['orange', 'apple', 'hotmail']);
+    expect(def.senders[0].minScoreByEsp).toEqual({ default: 1, orange: 10.01, apple: 0, hotmail: 5 });
+    expect(def.senders[0].minNewScoreByEsp).toEqual({ orange: 1, hotmail: 101 });
+    expect(def.senders[0].autoUpdates.orange).toEqual({ enabled: true, minOpenRate: 18 });
+    expect(espConfigs[1]).toMatchObject({ esps: ['gmail'], senders: [{ senderId: 11, minScoreByEsp: { gmail: 51.06 }, minNewScoreByEsp: { gmail: 49.26 } }] });
+    expect(warnings.some((w) => w.includes('apple') && w.includes('openScore'))).toBe(true);
+    expect(warnings.some((w) => w.includes('gmail') && w.includes('1 nouveaux'))).toBe(true);
   });
 });
 
