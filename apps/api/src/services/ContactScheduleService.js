@@ -92,7 +92,15 @@ module.exports = class {
     let schedule = await this._getSchedulefromCache(scheduleId);
     log.debug(`schedule ${schedule.name} fetched`);
     let content = await this._getContentfromCache(contentId);
-    let contentVersion = this.contentService.selectVersionToSend(content);
+    let contentVersion = content ? this.contentService.selectVersionToSend(content) : null;
+    if (!contentVersion) {
+      // contenu supprimé ou sans version disponible entre la sélection et l'envoi : pas d'envoi, mais un no_request tracé
+      log.warn(`No available version for content ${contentId}, contact ${contactId}, schedule ${scheduleId}`);
+      if (contact && schedule) {
+        await this._insertNoRequestEvent(contact, schedule, { ...(details || {}), reason: 'no_available_version', contentId });
+      }
+      return;
+    }
     log.debug(`version ${contentVersion.name} fetched`);
 
     let sendingConfig = await this.sendingConfigService.findWithIdInCache(schedule.sendingConfigId);
@@ -223,7 +231,14 @@ module.exports = class {
       return true;
     }
 
-    let effectiveRatio = ((complaintReductionPolicyLevel * 1.0) / 5) * ((50 - contact.stats?.unique_open ?? 0) / 50.0) * maxPressureReductionRatio;
+    // ouvertures uniques du contact : stats.unique_open s'il existe, sinon stats.open (compteur repris de media)
+    const uniqueOpens = Number(contact.stats?.unique_open ?? contact.stats?.open ?? 0) || 0;
+    let effectiveRatio = ((complaintReductionPolicyLevel * 1.0) / 5) * (Math.max(0, 50 - uniqueOpens) / 50.0) * maxPressureReductionRatio;
+    if (!Number.isFinite(effectiveRatio)) {
+      // réglage invalide : on ne bloque pas l'envoi (avant correction, un NaN refusait tous les contacts workable)
+      log.warn(`Marketing pressure ratio is not a number for contact ${contact.id} (level ${complaintReductionPolicyLevel}, ratio ${maxPressureReductionRatio})`);
+      return true;
+    }
     let random = Math.random();
 
     return random > effectiveRatio;

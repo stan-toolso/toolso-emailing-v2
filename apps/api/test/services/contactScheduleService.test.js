@@ -275,3 +275,27 @@ test('test customFieldFilter does not short-circuit following filters (exclusion
 
   expect(await contactScheduleService._is_content_match_contact(fieldThenExclusion, okContact)).toBe(false);
 });
+
+describe('pression marketing (_match_marketing_pressure)', () => {
+  const workable = (stats) => ({ id: 1, status: 'workable', esp: 'orange', stats });
+
+  test('contact sans stats.unique_open (repris de media) : plus de NaN, le tirage décide', async () => {
+    // Math.random = 0.5 ; ratio = 3/5 × (50-0)/50 × 0.5 = 0.3 → envoyé
+    expect(await contactScheduleService._match_marketing_pressure(workable({ open: 0 }), 0.5, 3)).toBe(true);
+    expect(await contactScheduleService._match_marketing_pressure(workable(undefined), 0.5, 3)).toBe(true);
+    expect(await contactScheduleService._match_marketing_pressure(workable({}), 0.5, 3)).toBe(true);
+  });
+
+  test('stats.open sert de repli à stats.unique_open', async () => {
+    jest.spyOn(global.Math, 'random').mockReturnValue(0.1);
+    // 0 ouverture : ratio 0.3 > 0.1 → refusé ; 40 ouvertures (open) : ratio 0.06 < 0.1 → envoyé
+    expect(await contactScheduleService._match_marketing_pressure(workable({}), 0.5, 3)).toBe(false);
+    expect(await contactScheduleService._match_marketing_pressure(workable({ open: 40 }), 0.5, 3)).toBe(true);
+    expect(await contactScheduleService._match_marketing_pressure(workable({ unique_open: 40, open: 0 }), 0.5, 3)).toBe(true);
+  });
+
+  test('réglage invalide : on ne bloque pas', async () => {
+    jest.spyOn(global.Math, 'random').mockReturnValue(0);
+    expect(await contactScheduleService._match_marketing_pressure(workable({}), 0.5, 'x')).toBe(true);
+  });
+});
