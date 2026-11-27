@@ -135,8 +135,25 @@ Sur un serveur installé avant ce script, ajouter la ligne `*/5 * * * * root …
 Sur le serveur de bases choisi (celui qui n'est pas plein, `bin/capacity.sh`) :
 
 ```bash
-sudo deploy/bin/add-database.sh <uid> "<nom>" "<entreprise>" lk.<domaine-du-site>
+sudo deploy/bin/add-database.sh <uid> "<nom>" "<entreprise>" lk.<domaine-du-site> lk.news.<domaine-du-site>
 ```
+
+**Domaine de suivi : ne jamais faire pointer un nom du client sur une IP.** On garde la main sur la cible avec deux
+niveaux de CNAME :
+
+| Nom | Zone (qui la gère) | Enregistrement |
+|---|---|---|
+| `lk.<domaine-du-site>` | DNS du client (une seule fois) | CNAME `lk.news.<domaine-du-site>` |
+| `lk.news.<domaine-du-site>` | sous-domaine `news.` déjà délégué à Route53 (chez nous) | CNAME `<PUBLIC_HOST du serveur de bases>` |
+| `<PUBLIC_HOST>` (ex. `db1.exemple.com`) | zone de l'exploitant | A / AAAA vers le serveur |
+
+Les deux noms vont dans `TRACKING_HOSTS` (le premier reste le domaine des liens des e-mails, c'est celui que
+`migrate-from-media.sh` prend par défaut) et dans le certificat :
+`add-database.sh … lk.<domaine-du-site> lk.news.<domaine-du-site>`. Changement d'IP du serveur : seul le A du
+`PUBLIC_HOST` change. Déplacement d'une base (§ 7) : seul le CNAME `lk.news.<domaine>` change. Sans `news.` délégué,
+prendre un nom d'une zone qu'on gère (`lk-<uid>.<zone>`) comme cible du CNAME client. Si le client est chez Cloudflare :
+CNAME en « DNS only » (pas de proxy). Pour un nouveau produit, `lk.news.<domaine>` peut aussi être le seul domaine de
+suivi (rien à demander au client).
 
 Comme avant : base et rôle PostgreSQL, `.env`, stack, schéma, nginx, certificat du domaine de tracking. L'enregistrement
 dans l'access se fait sur le serveur de contrôle (`register-database.sh` par SSH) avec
@@ -178,12 +195,13 @@ Règle : **un serveur qui dépasse un seuil ne reçoit plus de nouvelle base** ;
 ## 7. Déplacer une base vers un autre serveur
 
 À faire hors des heures d'envoi ; coupure de quelques minutes pour l'interface de cette base, les clics et ouvertures
-reçus pendant la bascule DNS sont perdus. La veille : baisser le TTL DNS du domaine de tracking à 300 s.
+reçus pendant la bascule DNS sont perdus. La veille : vérifier que le TTL du CNAME `lk.news.<domaine>` (Route53) est à
+300 s. Le DNS du client (`lk.<domaine>` → CNAME `lk.news.<domaine>`, § 4) ne change pas.
 
 Sur le **nouveau** serveur (B), créer l'instance vide sans l'enregistrer ni demander de certificat :
 
 ```bash
-sudo deploy/bin/add-database.sh <uid> "<nom>" "<entreprise>" lk.<domaine> --skip-register --no-tls
+sudo deploy/bin/add-database.sh <uid> "<nom>" "<entreprise>" lk.<domaine> lk.news.<domaine> --skip-register --no-tls
 sudo deploy/bin/compose.sh <uid> stop
 ```
 
@@ -199,7 +217,7 @@ Sur **B** :
 
 ```bash
 sudo deploy/bin/restore.sh /var/backups/toolso-emailing/<date>_<uid> --db <uid> --files <uid> --yes
-# DNS lk.<domaine> → IP de B, puis :
+# Route53 : lk.news.<domaine> CNAME <PUBLIC_HOST de B>, puis :
 sudo deploy/bin/tls.sh issue-tracking <uid>
 sudo deploy/bin/compose.sh <uid> up -d
 ```
