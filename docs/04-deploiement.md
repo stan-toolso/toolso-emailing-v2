@@ -93,7 +93,7 @@ encore là). Vérifier : `deploy/bin/compose.sh platform ps`, `deploy/bin/logs.s
 | Nom | Type | Cible | Usage |
 |---|---|---|---|
 | `emailing.exemple.com` | A / AAAA | IP du serveur | UI, `/access/graphql`, `/api/<uid>/`, `/files/<uid>/` |
-| `lk.exemple.com` (par base) | A / AAAA ou CNAME vers l'hôte principal | IP du serveur | liens trackés, pixel d'ouverture, désabonnement, miroir, webhooks |
+| `lk.exemple.com` (par base) | CNAME vers l'hôte principal (de préférence par un relais dans une zone qu'on gère, voir `docs/09` § 4) ; A / AAAA seulement si l'on gère soi-même ce DNS | IP du serveur | liens trackés, pixel d'ouverture, désabonnement, miroir, webhooks |
 
 Les domaines de tracking apparaissent dans les mails envoyés : préférer un sous-domaine du
 domaine expéditeur de chaque client. Les en-têtes SPF/DKIM/DMARC relèvent des ESP configurés dans

@@ -628,9 +628,12 @@ bin/compose.sh <uid> run --rm -T --no-deps api node scripts/set-mail-router-cred
 
 ### Domaine de suivi
 
-Un domaine `lk.<domaine du site>` par instance (`TRACKING_HOSTS`, `add-database.sh … lk.<domaine>`) : enregistrement **A**
-(et AAAA si le serveur en a une) vers le serveur de bases, ou CNAME vers son nom ; puis `bin/tls.sh issue-tracking <uid>`
-quand le DNS répond. Ne pas reprendre le domaine de redirection media (`settings.emailingRedirectionLink`, souvent
+Un domaine `lk.<domaine du site>` par instance, avec un relais `lk.news.<domaine du site>` dans la zone `news.` que l'on
+gère déjà dans Route53 (`TRACKING_HOSTS`, `add-database.sh … lk.<domaine> lk.news.<domaine>`) : chez le client, une seule
+fois, `lk.<domaine>` **CNAME** `lk.news.<domaine>` (jamais un A vers l'IP du serveur : on ne maîtrise pas son DNS) ; dans
+Route53, `lk.news.<domaine>` CNAME vers le `PUBLIC_HOST` du serveur de bases (détail et déplacement : `docs/09` § 4 et
+§ 7) ; puis `bin/tls.sh issue-tracking <uid>` quand le DNS répond. Le relais est un sous-domaine de `news.<domaine>` mais
+ne touche pas à son A, qui reste sur media. Ne pas reprendre le domaine de redirection media (`settings.emailingRedirectionLink`, souvent
 `news.<domaine>`) : les liens des e-mails déjà envoyés par media (`/tk/r2/…`, `/tk/c/…`, `/tk/o2/…`, `/unsubscribe/…`,
 `/mirror/…`, page `/desinscription`) doivent continuer d'aboutir à media au moins 60 jours après la bascule, et ce domaine
 porte souvent aussi le MX et le SPF de l'adresse d'expédition.
